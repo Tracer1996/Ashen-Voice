@@ -1,0 +1,67 @@
+name: Build Ashen Voice Windows Installer
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Configure native Win32 build
+        shell: pwsh
+        run: cmake -S native -B native/build -A Win32
+
+      - name: Compile overlay DLL and injector
+        shell: pwsh
+        run: cmake --build native/build --config Release
+
+      - name: Stage native binaries
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release | Out-Null
+          Copy-Item native/build/Release/AshenVoice.dll release/AshenVoice.dll
+          Copy-Item native/build/Release/AshenVoiceInjector.exe release/AshenVoiceInjector.exe
+
+      - name: Install application dependencies
+        run: npm install
+
+      - name: Build Windows installer
+        run: npm run dist:win
+
+      - name: Create checksum
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem dist/AshenVoice-Setup-*.exe | Select-Object -First 1
+          $hash = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash.ToLower()
+          "$hash  $($installer.Name)" | Set-Content -Encoding ascii "$($installer.FullName).sha256"
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ashen-Voice-Windows-Installer
+          path: |
+            dist/AshenVoice-Setup-*.exe
+            dist/AshenVoice-Setup-*.exe.sha256
+
+      - name: Publish tagged release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/AshenVoice-Setup-*.exe
+            dist/AshenVoice-Setup-*.exe.sha256

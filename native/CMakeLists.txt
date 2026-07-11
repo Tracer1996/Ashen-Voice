@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.20)
+project(OctoWoWDiscordOverlay LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 17)
+add_library(AshenVoice SHARED OverlayDLL/OverlayDLL.cpp)
+target_link_libraries(AshenVoice PRIVATE d3d9)
+set_target_properties(AshenVoice PROPERTIES OUTPUT_NAME "AshenVoice")
+add_executable(AshenVoiceInjector WIN32 Injector/Injector.cpp)

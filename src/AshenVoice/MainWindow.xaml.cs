@@ -1,10 +1,10 @@
 using Microsoft.Win32;
 using System.Diagnostics;
 using System.IO;
+using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Threading;
 using Forms = System.Windows.Forms;
@@ -18,9 +18,16 @@ public partial class MainWindow : Window
     private readonly string _settingsPath;
     private readonly string _tokenPath;
     private readonly string _speakerStatePath;
+    private readonly string _avatarDirectory;
+    private readonly HttpClient _httpClient = new();
+    private readonly Dictionary<string, DiscordVoiceMember> _voiceMembers = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ActiveSpeaker> _activeSpeakers = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> _speakerGenerations = new(StringComparer.Ordinal);
+
     private AppSettings _settings = new();
     private Forms.NotifyIcon? _trayIcon;
-    private Process? _discordProcess;
+    private DiscordRpcClient? _discordRpc;
+    private CancellationTokenSource? _discordConnectCancellation;
     private bool _serviceRunning = true;
     private bool _allowClose;
     private bool _lastWowDetected;
@@ -39,10 +46,12 @@ public partial class MainWindow : Window
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "AshenVoice");
         _settingsPath = Path.Combine(_settingsDirectory, "settings.json");
-        _tokenPath = Path.Combine(_settingsDirectory, "discord-token.bin");
+        _tokenPath = Path.Combine(_settingsDirectory, "discord-oauth.bin");
         _speakerStatePath = Path.Combine(_settingsDirectory, "speakers.tsv");
+        _avatarDirectory = Path.Combine(_settingsDirectory, "avatars");
 
         Directory.CreateDirectory(_settingsDirectory);
+        Directory.CreateDirectory(_avatarDirectory);
         ClearSpeakerState();
         LoadSettings();
         ConfigureTrayIcon();
@@ -51,12 +60,13 @@ public partial class MainWindow : Window
         _processTimer.Tick += (_, _) => CheckForWow();
         _processTimer.Start();
 
-        Loaded += (_, _) =>
+        Loaded += async (_, _) =>
         {
             AddLog("Ashen Voice started.");
-            AddLog("Phase 3 compact overlay is active. Connect Discord, start the overlay, then speak in the configured voice channel.");
+            AddLog("Phase 3.1 uses the Discord desktop app directly. No bot, bridge, server ID, or channel ID is required.");
             CheckForWow(forceLog: true);
             UpdateControls();
+            await TryAutoConnectDiscordAsync();
         };
     }
 
@@ -94,13 +104,14 @@ public partial class MainWindow : Window
             _settings = new AppSettings();
         }
 
+        if (_settings.ProcessNames is null || _settings.ProcessNames.Count == 0)
+        {
+            _settings.ProcessNames = new List<string> { "Wow", "WoW", "OctoWoW" };
+        }
+
         MinimizeToTrayCheckBox.IsChecked = _settings.MinimizeToTray;
         StartWithWindowsCheckBox.IsChecked = _settings.StartWithWindows;
         ProcessNamesTextBox.Text = string.Join(", ", _settings.ProcessNames);
-        ServerIdTextBox.Text = _settings.DiscordGuildId;
-        VoiceChannelIdTextBox.Text = _settings.DiscordChannelId;
-        SaveTokenCheckBox.IsChecked = _settings.SaveDiscordToken;
-        TokenPasswordBox.Password = _settings.SaveDiscordToken ? LoadProtectedToken() : string.Empty;
     }
 
     private void SaveSettings()
@@ -123,21 +134,6 @@ public partial class MainWindow : Window
         _settings.MinimizeToTray = MinimizeToTrayCheckBox.IsChecked == true;
         _settings.StartWithWindows = StartWithWindowsCheckBox.IsChecked == true;
         SetStartupRegistration(_settings.StartWithWindows);
-        SaveSettings();
-    }
-
-    private void DiscordSettingChanged(object sender, RoutedEventArgs e)
-    {
-        if (!IsLoaded)
-        {
-            return;
-        }
-
-        _settings.SaveDiscordToken = SaveTokenCheckBox.IsChecked == true;
-        if (!_settings.SaveDiscordToken)
-        {
-            DeleteProtectedToken();
-        }
         SaveSettings();
     }
 
@@ -290,225 +286,293 @@ public partial class MainWindow : Window
 
     private async void ConnectDiscordButton_Click(object sender, RoutedEventArgs e)
     {
-        await ConnectDiscordAsync();
+        await ConnectDiscordAsync(forceAuthorization: false);
     }
 
-    private async Task ConnectDiscordAsync()
+    private async Task TryAutoConnectDiscordAsync()
+    {
+        DiscordOAuthToken? token = LoadProtectedToken();
+        if (token?.IsUsable != true)
+        {
+            return;
+        }
+
+        AddLog("Attempting to reconnect to the active Discord account...");
+        await ConnectDiscordAsync(forceAuthorization: false);
+    }
+
+    private async Task ConnectDiscordAsync(bool forceAuthorization)
     {
         if (_discordConnected || _discordConnecting)
         {
             return;
         }
 
-        string token = TokenPasswordBox.Password.Trim();
-        string guildId = ServerIdTextBox.Text.Trim();
-        string channelId = VoiceChannelIdTextBox.Text.Trim();
-
-        if (string.IsNullOrWhiteSpace(token))
+        if (!DiscordBuildConfig.IsConfigured)
         {
-            ShowDiscordValidation("Paste your Discord bot token first.");
-            return;
-        }
-
-        if (!IsDiscordSnowflake(guildId) || !IsDiscordSnowflake(channelId))
-        {
-            ShowDiscordValidation("The server ID and voice channel ID must be Discord IDs containing 17 to 20 digits.");
-            return;
-        }
-
-        string discordDirectory = Path.Combine(AppContext.BaseDirectory, "discord");
-        string nodePath = Path.Combine(discordDirectory, "node.exe");
-        string companionPath = Path.Combine(discordDirectory, "companion.js");
-
-        if (!File.Exists(nodePath) || !File.Exists(companionPath))
-        {
-            AddLog("Discord connection failed: the packaged companion files are missing.");
             System.Windows.MessageBox.Show(
-                "The Discord companion files are missing. Reinstall the Phase 3 build.",
-                "Ashen Voice",
+                "This installer was built without a Discord Application ID. Add the DISCORD_CLIENT_ID repository variable and rebuild Phase 3.1.",
+                "Discord setup required",
                 MessageBoxButton.OK,
-                MessageBoxImage.Error);
+                MessageBoxImage.Warning);
+            AddLog("Discord connection is unavailable because DISCORD_CLIENT_ID was not configured during the build.");
             return;
         }
 
-        _settings.DiscordGuildId = guildId;
-        _settings.DiscordChannelId = channelId;
-        _settings.SaveDiscordToken = SaveTokenCheckBox.IsChecked == true;
-        SaveSettings();
+        await DisconnectDiscordCoreAsync(writeLog: false);
 
-        if (_settings.SaveDiscordToken)
-        {
-            SaveProtectedToken(token);
-        }
-        else
-        {
-            DeleteProtectedToken();
-        }
-
-        ClearSpeakerState();
         _discordConnecting = true;
-        _discordConnected = false;
         DiscordStatusText.Text = "Connecting...";
         DiscordStatusText.Foreground = System.Windows.Media.Brushes.Orange;
+        DiscordAccountText.Text = "Connecting to Discord...";
+        DiscordVoiceText.Text = "Checking active voice channel...";
         UpdateControls();
-        AddLog("Connecting the Ashen Voice bot to Discord...");
+
+        _discordConnectCancellation = new CancellationTokenSource();
+        CancellationToken cancellationToken = _discordConnectCancellation.Token;
 
         try
         {
-            var startInfo = new ProcessStartInfo
+            DiscordOAuthToken? token = forceAuthorization ? null : LoadProtectedToken();
+            if (token?.IsUsable != true)
             {
-                FileName = nodePath,
-                WorkingDirectory = discordDirectory,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                StandardOutputEncoding = Encoding.UTF8,
-                StandardErrorEncoding = Encoding.UTF8
-            };
-            startInfo.ArgumentList.Add(companionPath);
-            startInfo.Environment["ASHEN_DISCORD_TOKEN"] = token;
-            startInfo.Environment["ASHEN_DISCORD_GUILD_ID"] = guildId;
-            startInfo.Environment["ASHEN_DISCORD_CHANNEL_ID"] = channelId;
-            startInfo.Environment["ASHEN_STATE_DIRECTORY"] = _settingsDirectory;
-
-            Process process = new() { StartInfo = startInfo, EnableRaisingEvents = true };
-            process.OutputDataReceived += DiscordOutputReceived;
-            process.ErrorDataReceived += DiscordErrorReceived;
-            process.Exited += DiscordProcessExited;
-
-            if (!process.Start())
-            {
-                process.Dispose();
-                throw new InvalidOperationException("Windows could not start the Discord companion.");
+                AddLog("Opening Discord authorization...");
+                var oauth = new DiscordOAuthService();
+                token = await oauth.AuthorizeAsync(cancellationToken);
+                SaveProtectedToken(token);
             }
 
-            _discordProcess = process;
-            process.BeginOutputReadLine();
-            process.BeginErrorReadLine();
+            var rpc = new DiscordRpcClient(DiscordBuildConfig.ClientId);
+            WireDiscordClient(rpc);
+            _discordRpc = rpc;
+            await rpc.ConnectAndAuthenticateAsync(token.AccessToken, cancellationToken);
 
-            await Task.Delay(250);
-            if (process.HasExited)
-            {
-                throw new InvalidOperationException($"The Discord companion exited with code {process.ExitCode}.");
-            }
+            _discordConnected = true;
+            _discordConnecting = false;
+            DiscordStatusText.Text = "Connected";
+            DiscordStatusText.Foreground = System.Windows.Media.Brushes.LightGreen;
+            AddLog("Discord is connected directly through the local desktop client.");
+        }
+        catch (OperationCanceledException)
+        {
+            await DisposeDiscordRpcAsync();
+            AddLog("Discord connection was canceled.");
+            ResetDiscordUi();
+        }
+        catch (DiscordRpcException exception) when (exception.Code is 4006 or 4007)
+        {
+            await DisposeDiscordRpcAsync();
+            DeleteProtectedToken();
+            AddLog($"Discord authorization was rejected: {exception.Message}");
+            ResetDiscordUi();
+            System.Windows.MessageBox.Show(
+                "Discord did not accept the saved authorization. Click Connect Discord again to approve Ashen Voice.",
+                "Discord authorization",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
         }
         catch (Exception exception)
         {
-            _discordConnecting = false;
-            _discordConnected = false;
+            await DisposeDiscordRpcAsync();
             AddLog($"Discord connection failed: {exception.Message}");
-            DiscordStatusText.Text = "Error";
-            DiscordStatusText.Foreground = System.Windows.Media.Brushes.OrangeRed;
+            ResetDiscordUi(error: true);
+            System.Windows.MessageBox.Show(
+                BuildDiscordErrorMessage(exception),
+                "Discord connection failed",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+        finally
+        {
+            _discordConnecting = false;
             UpdateControls();
         }
     }
 
-    private void DiscordOutputReceived(object sender, DataReceivedEventArgs e)
+    private static string BuildDiscordErrorMessage(Exception exception)
     {
-        string? line = e.Data;
-        if (string.IsNullOrWhiteSpace(line))
+        string message = exception.Message;
+        if (message.Contains("scope", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("approved", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("access", StringComparison.OrdinalIgnoreCase))
         {
-            return;
+            return message +
+                   "\n\nDuring development, your Discord account must be added as an application tester. Public use of Discord RPC voice scopes requires Discord approval.";
         }
 
-        if (!Dispatcher.HasShutdownStarted)
-        {
-            Dispatcher.BeginInvoke(() => HandleDiscordMessage(line));
-        }
+        return message;
     }
 
-    private void DiscordErrorReceived(object sender, DataReceivedEventArgs e)
+    private void WireDiscordClient(DiscordRpcClient rpc)
     {
-        string? line = e.Data;
-        if (!string.IsNullOrWhiteSpace(line) && !Dispatcher.HasShutdownStarted)
+        rpc.Log += message => SafeDispatch(() => AddLog($"Discord: {message}"));
+        rpc.Authenticated += user => SafeDispatch(() =>
         {
-            Dispatcher.BeginInvoke(() => AddLog($"Discord companion: {line}"));
-        }
-    }
-
-    private void HandleDiscordMessage(string line)
-    {
-        try
+            DiscordAccountText.Text = $"Connected as {user.DisplayName}";
+        });
+        rpc.VoiceChannelChanged += channel => SafeDispatch(() => HandleVoiceChannelChanged(channel));
+        rpc.VoiceMemberUpserted += member => SafeDispatch(() => _voiceMembers[member.UserId] = member);
+        rpc.VoiceMemberRemoved += userId => SafeDispatch(() =>
         {
-            using JsonDocument document = JsonDocument.Parse(line);
-            string type = document.RootElement.TryGetProperty("type", out JsonElement typeElement)
-                ? typeElement.GetString() ?? "status"
-                : "status";
-            string message = document.RootElement.TryGetProperty("message", out JsonElement messageElement)
-                ? messageElement.GetString() ?? line
-                : line;
-
-            switch (type)
-            {
-                case "connected":
-                    _discordConnecting = false;
-                    _discordConnected = true;
-                    DiscordStatusText.Text = "Connected";
-                    DiscordStatusText.Foreground = System.Windows.Media.Brushes.LightGreen;
-                    AddLog(message);
-                    break;
-
-                case "error":
-                    AddLog($"Discord: {message}");
-                    if (!_discordConnected)
-                    {
-                        DiscordStatusText.Text = "Error";
-                        DiscordStatusText.Foreground = System.Windows.Media.Brushes.OrangeRed;
-                    }
-                    break;
-
-                case "speaker":
-                    AddLog(message);
-                    break;
-
-                default:
-                    AddLog($"Discord: {message}");
-                    break;
-            }
-        }
-        catch
+            _voiceMembers.Remove(userId);
+            RemoveActiveSpeaker(userId);
+        });
+        rpc.SpeakingChanged += (userId, speaking) => SafeDispatch(() => HandleSpeakingChanged(userId, speaking));
+        rpc.Disconnected += message => SafeDispatch(() =>
         {
-            AddLog($"Discord: {line}");
-        }
-
-        UpdateControls();
-    }
-
-    private void DiscordProcessExited(object? sender, EventArgs e)
-    {
-        if (Dispatcher.HasShutdownStarted)
-        {
-            return;
-        }
-
-        Dispatcher.BeginInvoke(() =>
-        {
-            if (sender is Process process)
-            {
-                try
-                {
-                    AddLog($"Discord companion stopped with code {process.ExitCode}.");
-                }
-                catch
-                {
-                    AddLog("Discord companion stopped.");
-                }
-            }
-
-            if (ReferenceEquals(_discordProcess, sender))
-            {
-                _discordProcess = null;
-            }
-
-            _discordConnecting = false;
-            _discordConnected = false;
-            DiscordStatusText.Text = "Disconnected";
-            DiscordStatusText.Foreground = System.Windows.Media.Brushes.LightGray;
+            AddLog($"Discord disconnected: {message}");
+            _voiceMembers.Clear();
+            _activeSpeakers.Clear();
+            _speakerGenerations.Clear();
             ClearSpeakerState();
+            ResetDiscordUi(error: true);
             UpdateControls();
         });
     }
+
+    private void SafeDispatch(Action action)
+    {
+        if (!Dispatcher.HasShutdownStarted)
+        {
+            Dispatcher.BeginInvoke(action);
+        }
+    }
+
+    private void HandleVoiceChannelChanged(DiscordVoiceChannel? channel)
+    {
+        _voiceMembers.Clear();
+        _activeSpeakers.Clear();
+        _speakerGenerations.Clear();
+        WriteSpeakerState();
+
+        if (channel is null)
+        {
+            DiscordVoiceText.Text = "Not currently in a Discord voice channel";
+            AddLog("Discord is connected. Join any voice channel and Ashen Voice will follow it automatically.");
+            return;
+        }
+
+        foreach (DiscordVoiceMember member in channel.Members)
+        {
+            _voiceMembers[member.UserId] = member;
+        }
+
+        DiscordVoiceText.Text = string.IsNullOrWhiteSpace(channel.GuildName)
+            ? $"Voice: {channel.Name}"
+            : $"Voice: {channel.GuildName} — {channel.Name}";
+        string voiceDescription = string.IsNullOrWhiteSpace(channel.GuildName)
+            ? channel.Name
+            : $"{channel.GuildName} — {channel.Name}";
+        AddLog($"Following Discord voice channel: {voiceDescription}");
+    }
+
+    private void HandleSpeakingChanged(string userId, bool speaking)
+    {
+        int generation = _speakerGenerations.TryGetValue(userId, out int current) ? current + 1 : 1;
+        _speakerGenerations[userId] = generation;
+
+        if (speaking)
+        {
+            if (!_voiceMembers.TryGetValue(userId, out DiscordVoiceMember? member))
+            {
+                member = new DiscordVoiceMember(userId, "Discord user", null, false);
+                _voiceMembers[userId] = member;
+            }
+
+            _ = AddOrUpdateActiveSpeakerAsync(member, generation);
+            return;
+        }
+
+        _ = RemoveSpeakerAfterDelayAsync(userId, generation);
+    }
+
+    private async Task AddOrUpdateActiveSpeakerAsync(DiscordVoiceMember member, int generation)
+    {
+        string avatarPath = await GetAvatarPathAsync(member);
+        await Dispatcher.InvokeAsync(() =>
+        {
+            if (!_speakerGenerations.TryGetValue(member.UserId, out int latest) || latest != generation)
+            {
+                return;
+            }
+
+            DateTimeOffset started = _activeSpeakers.TryGetValue(member.UserId, out ActiveSpeaker? existing)
+                ? existing.StartedAt
+                : DateTimeOffset.UtcNow;
+            _activeSpeakers[member.UserId] = new ActiveSpeaker(member.UserId, member.DisplayName, avatarPath, started);
+            WriteSpeakerState();
+        });
+    }
+
+    private async Task RemoveSpeakerAfterDelayAsync(string userId, int generation)
+    {
+        await Task.Delay(500);
+        await Dispatcher.InvokeAsync(() =>
+        {
+            if (_speakerGenerations.TryGetValue(userId, out int latest) && latest == generation)
+            {
+                RemoveActiveSpeaker(userId);
+            }
+        });
+    }
+
+    private void RemoveActiveSpeaker(string userId)
+    {
+        if (_activeSpeakers.Remove(userId))
+        {
+            WriteSpeakerState();
+        }
+    }
+
+    private async Task<string> GetAvatarPathAsync(DiscordVoiceMember member)
+    {
+        if (string.IsNullOrWhiteSpace(member.AvatarHash))
+        {
+            return string.Empty;
+        }
+
+        string safeHash = string.Concat(member.AvatarHash.Where(char.IsLetterOrDigit));
+        string path = Path.Combine(_avatarDirectory, $"{member.UserId}-{safeHash}.png");
+        if (File.Exists(path))
+        {
+            return path;
+        }
+
+        try
+        {
+            string url = $"https://cdn.discordapp.com/avatars/{member.UserId}/{member.AvatarHash}.png?size=64";
+            byte[] bytes = await _httpClient.GetByteArrayAsync(url);
+            await File.WriteAllBytesAsync(path, bytes);
+            return path;
+        }
+        catch (Exception exception)
+        {
+            SafeDispatch(() => AddLog($"Could not cache {member.DisplayName}'s avatar: {exception.Message}"));
+            return string.Empty;
+        }
+    }
+
+    private void WriteSpeakerState()
+    {
+        try
+        {
+            IEnumerable<string> lines = _activeSpeakers.Values
+                .OrderBy(speaker => speaker.StartedAt)
+                .Take(5)
+                .Select(speaker => $"{CleanSpeakerField(speaker.DisplayName)}\t{CleanSpeakerField(speaker.AvatarPath)}");
+
+            string temporary = _speakerStatePath + ".tmp";
+            File.WriteAllLines(temporary, lines, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            File.Move(temporary, _speakerStatePath, overwrite: true);
+        }
+        catch (Exception exception)
+        {
+            AddLog($"Could not update overlay speaker state: {exception.Message}");
+        }
+    }
+
+    private static string CleanSpeakerField(string value) =>
+        value.Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' ').Trim();
 
     private async void DisconnectDiscordButton_Click(object sender, RoutedEventArgs e)
     {
@@ -517,82 +581,91 @@ public partial class MainWindow : Window
 
     private async Task DisconnectDiscordAsync()
     {
-        Process? process = _discordProcess;
-        _discordProcess = null;
+        await DisconnectDiscordCoreAsync(writeLog: true);
+        DeleteProtectedToken();
+    }
 
-        if (process is not null)
+    private async Task DisposeDiscordRpcAsync()
+    {
+        DiscordRpcClient? rpc = _discordRpc;
+        _discordRpc = null;
+        if (rpc is not null)
         {
-            try
-            {
-                if (!process.HasExited)
-                {
-                    process.Kill(entireProcessTree: true);
-                    await process.WaitForExitAsync();
-                }
-            }
-            catch (Exception exception)
-            {
-                AddLog($"Discord disconnect warning: {exception.Message}");
-            }
-            finally
-            {
-                process.Dispose();
-            }
+            await rpc.DisposeAsync();
         }
+    }
+
+    private async Task DisconnectDiscordCoreAsync(bool writeLog)
+    {
+        _discordConnectCancellation?.Cancel();
+        _discordConnectCancellation?.Dispose();
+        _discordConnectCancellation = null;
+
+        await DisposeDiscordRpcAsync();
 
         _discordConnecting = false;
         _discordConnected = false;
-        DiscordStatusText.Text = "Disconnected";
-        DiscordStatusText.Foreground = System.Windows.Media.Brushes.LightGray;
+        _voiceMembers.Clear();
+        _activeSpeakers.Clear();
+        _speakerGenerations.Clear();
         ClearSpeakerState();
-        AddLog("Discord disconnected.");
+        ResetDiscordUi();
+        if (writeLog)
+        {
+            AddLog("Discord disconnected.");
+        }
         UpdateControls();
     }
 
-    private static bool IsDiscordSnowflake(string value)
+    private void ResetDiscordUi(bool error = false)
     {
-        return Regex.IsMatch(value, @"^\d{17,20}$", RegexOptions.CultureInvariant);
+        _discordConnected = false;
+        DiscordStatusText.Text = error ? "Error" : "Disconnected";
+        DiscordStatusText.Foreground = error
+            ? System.Windows.Media.Brushes.OrangeRed
+            : System.Windows.Media.Brushes.LightGray;
+        DiscordAccountText.Text = "Not connected";
+        DiscordVoiceText.Text = "Active voice channel will be detected automatically";
     }
 
-    private static void ShowDiscordValidation(string message)
-    {
-        System.Windows.MessageBox.Show(
-            message,
-            "Discord setup",
-            MessageBoxButton.OK,
-            MessageBoxImage.Information);
-    }
-
-    private void SaveProtectedToken(string token)
+    private void SaveProtectedToken(DiscordOAuthToken token)
     {
         try
         {
-            byte[] plain = Encoding.UTF8.GetBytes(token);
+            byte[] plain = JsonSerializer.SerializeToUtf8Bytes(token);
             byte[] protectedBytes = ProtectedData.Protect(plain, null, DataProtectionScope.CurrentUser);
             File.WriteAllBytes(_tokenPath, protectedBytes);
         }
         catch (Exception exception)
         {
-            AddLog($"Could not securely save the Discord token: {exception.Message}");
+            AddLog($"Could not securely save Discord authorization: {exception.Message}");
         }
     }
 
-    private string LoadProtectedToken()
+    private DiscordOAuthToken? LoadProtectedToken()
     {
         try
         {
             if (!File.Exists(_tokenPath))
             {
-                return string.Empty;
+                return null;
             }
 
             byte[] protectedBytes = File.ReadAllBytes(_tokenPath);
             byte[] plain = ProtectedData.Unprotect(protectedBytes, null, DataProtectionScope.CurrentUser);
-            return Encoding.UTF8.GetString(plain);
+            DiscordOAuthToken? token = JsonSerializer.Deserialize<DiscordOAuthToken>(plain);
+            if (token?.IsUsable == true)
+            {
+                return token;
+            }
+
+            DeleteProtectedToken();
+            return null;
         }
         catch
         {
-            return string.Empty;
+            DeleteProtectedToken();
+            return null;
         }
     }
 
@@ -604,7 +677,6 @@ public partial class MainWindow : Window
         }
         catch
         {
-            // A token file locked by antivirus can be removed on the next settings change.
         }
     }
 
@@ -848,11 +920,10 @@ public partial class MainWindow : Window
     {
         try
         {
-            File.WriteAllText(_speakerStatePath, string.Empty, Encoding.UTF8);
+            File.WriteAllText(_speakerStatePath, string.Empty, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         }
         catch
         {
-            // The companion may briefly own the file while atomically replacing it.
         }
     }
 
@@ -879,7 +950,7 @@ public partial class MainWindow : Window
                 ? System.Windows.Media.Brushes.Orange
                 : System.Windows.Media.Brushes.LightGray;
 
-        if (!_discordConnected && !_discordConnecting && _discordProcess is null)
+        if (!_discordConnected && !_discordConnecting)
         {
             DiscordStatusText.Text = "Disconnected";
             DiscordStatusText.Foreground = System.Windows.Media.Brushes.LightGray;
@@ -890,7 +961,7 @@ public partial class MainWindow : Window
         StartOverlayButton.IsEnabled = !_overlayActive && !_overlayStarting && _detectedWowProcessId is not null;
         StopOverlayButton.IsEnabled = _overlayActive && !_overlayStarting;
         ConnectDiscordButton.IsEnabled = !_discordConnected && !_discordConnecting;
-        DisconnectDiscordButton.IsEnabled = _discordConnected || _discordConnecting || _discordProcess is not null;
+        DisconnectDiscordButton.IsEnabled = _discordConnected || _discordConnecting || _discordRpc is not null;
         PreviewOverlayButton.IsEnabled = _overlayActive && !_discordConnected && !_discordConnecting;
     }
 
@@ -926,6 +997,7 @@ public partial class MainWindow : Window
         SignalOverlayStopWithoutWaiting();
         StopDiscordWithoutWaiting();
         ClearSpeakerState();
+        _httpClient.Dispose();
         _trayIcon?.Dispose();
         base.OnClosing(e);
     }
@@ -943,6 +1015,7 @@ public partial class MainWindow : Window
         SignalOverlayStopWithoutWaiting();
         StopDiscordWithoutWaiting();
         ClearSpeakerState();
+        _httpClient.Dispose();
         _trayIcon?.Dispose();
         System.Windows.Application.Current.Shutdown();
     }
@@ -966,33 +1039,24 @@ public partial class MainWindow : Window
 
     private void StopDiscordWithoutWaiting()
     {
-        try
+        _discordConnectCancellation?.Cancel();
+        if (_discordRpc is not null)
         {
-            if (_discordProcess is not null && !_discordProcess.HasExited)
-            {
-                _discordProcess.Kill(entireProcessTree: true);
-            }
-        }
-        catch
-        {
-            // The companion may already be closing.
+            _ = _discordRpc.DisposeAsync();
+            _discordRpc = null;
         }
     }
 }
 
 public sealed record DetectedWowProcess(int ProcessId, string ProcessName);
 
+internal sealed record ActiveSpeaker(string UserId, string DisplayName, string AvatarPath, DateTimeOffset StartedAt);
+
 public sealed class AppSettings
 {
     public bool MinimizeToTray { get; set; } = true;
 
     public bool StartWithWindows { get; set; }
-
-    public bool SaveDiscordToken { get; set; } = true;
-
-    public string DiscordGuildId { get; set; } = string.Empty;
-
-    public string DiscordChannelId { get; set; } = string.Empty;
 
     public List<string> ProcessNames { get; set; } = new()
     {

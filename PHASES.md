@@ -2,40 +2,33 @@
 
 ## Phase 1 — Complete
 
-- Core WPF application
-- Installer
-- WoW process detection
-- Settings, tray support, and uninstall
+Core Windows application, installer, settings, tray behavior, and WoW process detection.
 
 ## Phase 2 — Complete
 
-- 32-bit DirectX 9 overlay DLL
-- Win32 injector
-- Exclusive-fullscreen rendering test
+32-bit DirectX 9 injected overlay working in exclusive-fullscreen OctoWoW.
 
-## Phase 3 — Current
+## Phase 3 — Superseded
 
-- Compact speaker-only design
-- Circular Discord avatar textures
-- Clean display-name rendering
-- Bundled Discord companion
-- Bot token, server ID, and channel ID setup
-- Live speaking start/stop detection
+The first speaker integration used a bot token and per-user channel IDs. That architecture was rejected because normal users should not configure or host a Discord bot.
+
+## Phase 3.1 — Current
+
+Direct local Discord account connection:
+
+- One **Connect Discord** button
+- No bot or bridge
+- Automatic current voice-channel detection
+- Live speaking metadata
+- Real display names and avatars
+- Compact fullscreen overlay rows
+
+Development access is limited to the app owner and invited testers until Discord grants public RPC voice-scope access.
 
 ## Phase 4 — Planned
 
-- Draggable positioning
-- Overlay scale and opacity
-- Left/right layout
-- Avatar-only and minimal modes
-- Maximum speaker setting
-- Theme choices
-- Configurable speaking hold/fade timing
+Position, scale, opacity, avatar sizing, layouts, themes, hotkey, and multi-monitor profiles.
 
 ## Phase 5 — Planned
 
-- Public GitHub release
-- Automatic updates
-- Signing and release documentation
-- Portable distribution
-- Compatibility and troubleshooting guide
+Public release workflow, Discord RPC approval, signed installers, releases, update checking, documentation, and rollback support.

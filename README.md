@@ -1,60 +1,75 @@
-# Ashen Voice — Phase 3
+# Ashen Voice — Phase 3.1 Local Discord RPC
 
-Ashen Voice is a fullscreen Discord speaker overlay for 32-bit DirectX 9 classic World of Warcraft clients, including OctoWoW.
+Ashen Voice is a compact Discord speaking overlay for 32-bit DirectX 9 World of Warcraft clients such as OctoWoW and other 1.12-era clients.
 
-## Phase 3 features
+Phase 3.1 removes the bot-based connection screen. Players click **Connect Discord** once, approve Ashen Voice, and the app follows the voice channel used by their locally running Discord desktop account.
 
-- Compact Discord-style speaker rows instead of a large permanent panel
-- Only people who are actively speaking are shown
-- Circular Discord avatars with a green speaking ring
-- Discord display names rendered with a clean Segoe UI font
-- Subtle translucent cards in the upper-right corner
-- Up to five simultaneous speakers
-- Real Discord voice activity through a companion bot
-- The companion is bundled with the installer; players do not install Node.js
-- DirectX 9 overlay remains visible in exclusive fullscreen
-- Secure optional bot-token storage using Windows DPAPI
-- Eight-second compact preview for testing without Discord
+## What is included
 
-## Privacy behavior
+- Existing exclusive-fullscreen DirectX 9 overlay and injector
+- Compact avatar + display-name speaker rows
+- Direct connection to the local Discord desktop client
+- Automatic active voice-channel detection
+- Speaking start/stop events
+- Local avatar caching
+- Encrypted OAuth token storage using Windows DPAPI
+- No bot token
+- No server ID or voice-channel ID
+- No Node.js companion
+- No bridge process
+- Self-contained Windows installer
 
-The bot joins the selected Discord voice channel muted. It must receive Discord voice packets so that speaking activity can be detected, but Ashen Voice does not play, record, save, transcribe, or upload voice audio. The companion only writes active display names and cached avatar image paths to a local state file.
+## Important Discord restriction
 
-Discord voice receiving is not a documented Discord platform feature, so upstream library changes can require future compatibility updates.
+Discord RPC access is restricted during development to the application owner, developer-team members, and approved app testers. Discord currently allows up to 50 testers. A public release that uses the RPC voice scopes requires Discord approval.
 
-## Build the installer
+This build is therefore a **Phase 3.1 connection probe**. It lets us verify the correct no-bot architecture with the developer account and invited testers before applying for public RPC access.
 
-1. Copy this package over the contents of the existing Ashen Voice repository while keeping the hidden `.git` folder.
-2. Commit and push the changes.
-3. Open GitHub **Actions**.
-4. Run **Build Ashen Voice Phase 3**.
-5. Download the **Ashen-Voice-Phase3-Installer** artifact.
-6. Extract it and run `AshenVoice-Setup-1.2.0.exe`.
+## Developer Portal setup
 
-End users do not need Visual Studio, CMake, .NET, Node.js, or Inno Setup.
+Follow `DISCORD_SETUP.md` before running the GitHub Actions build.
 
-## Discord bot setup
+The build requires one GitHub repository variable:
 
-1. Create an application in the Discord Developer Portal.
-2. Open the application's **Bot** page and create/reset the bot token.
-3. Invite the bot to the server with **View Channels** and **Connect** permissions.
-4. Enable Developer Mode in Discord.
-5. Right-click the server and copy the Server ID.
-6. Right-click the voice channel and copy the Channel ID.
-7. Open Ashen Voice and enter the token and both IDs.
-8. Click **Connect Discord**.
-9. Launch OctoWoW and click **Start Overlay**.
+```text
+DISCORD_CLIENT_ID
+```
 
-The bot does not need Administrator permission and does not need permission to send messages.
+This is the public Discord Application ID, not a bot token or client secret.
 
-## Phase 3 acceptance test
+## Build
 
-- The installer upgrades the existing Ashen Voice installation.
-- Ashen Voice detects the WoW process.
-- **Start Overlay** loads without displaying a permanent panel.
-- **Preview Compact Style** shows three small rows for eight seconds.
-- **Connect Discord** causes the bot to join the selected voice channel.
-- Speaking users appear with their display name and circular avatar.
-- Rows disappear shortly after speech stops.
-- Alt-tabbing and exclusive fullscreen continue working.
-- Stopping the overlay does not close WoW.
+Run the GitHub Actions workflow:
+
+```text
+Build Ashen Voice Phase 3.1 Local Discord
+```
+
+Download the artifact:
+
+```text
+Ashen-Voice-Phase3.1-Local-Discord-Installer
+```
+
+It contains:
+
+```text
+AshenVoice-Setup-1.3.0.exe
+AshenVoice-Setup-1.3.0.exe.sha256
+```
+
+## Test order
+
+1. Open the Discord desktop app and join a normal server voice channel.
+2. Install and open Ashen Voice 1.3.0.
+3. Click **Connect Discord**.
+4. Approve the Discord authorization page.
+5. Confirm Ashen Voice shows the connected account and active voice channel.
+6. Launch OctoWoW.
+7. Click **Start Overlay**.
+8. Have another voice-channel member speak.
+9. Confirm their compact avatar/name row appears in fullscreen WoW and disappears shortly after they stop.
+
+## Privacy
+
+Ashen Voice reads local Discord voice-state metadata needed for the overlay: account identity, active channel, participant display names, avatar identifiers, and speaking start/stop events. It does not capture, decode, save, transmit, or play voice audio.

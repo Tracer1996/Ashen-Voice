@@ -3,9 +3,9 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Ashen Voice"
         Width="1080"
-        Height="760"
+        Height="730"
         MinWidth="930"
-        MinHeight="660"
+        MinHeight="640"
         Background="{StaticResource AshBrush}"
         Foreground="{StaticResource TextBrush}"
         WindowStartupLocation="CenterScreen">
@@ -68,22 +68,19 @@
                         <Button x:Name="StartOverlayButton" Content="Start Overlay" Click="StartOverlayButton_Click"/>
                         <Button x:Name="StopOverlayButton" Content="Stop Overlay" Click="StopOverlayButton_Click" Background="#FF4B4F58"/>
                         <Button x:Name="PreviewOverlayButton" Content="Preview Compact Style" Click="PreviewOverlayButton_Click" Background="#FF4B4F58"/>
-                        <TextBlock Text="The overlay is hidden until someone speaks. The preview shows three temporary speaker rows for eight seconds." FontSize="11" Margin="4,5,4,2" Opacity="0.65" TextWrapping="Wrap"/>
+                        <TextBlock Text="The overlay stays hidden until somebody speaks. Preview displays three temporary rows for eight seconds." FontSize="11" Margin="4,5,4,2" Opacity="0.65" TextWrapping="Wrap"/>
 
                         <Separator Margin="0,14"/>
-                        <TextBlock Text="Discord Connection" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,10"/>
-                        <TextBlock Text="Bot token" Margin="4,4,4,3" Opacity="0.72"/>
-                        <PasswordBox x:Name="TokenPasswordBox" Margin="4" Padding="8"/>
-                        <CheckBox x:Name="SaveTokenCheckBox" Content="Securely save token on this Windows account" Margin="4,5" Checked="DiscordSettingChanged" Unchecked="DiscordSettingChanged"/>
-
-                        <TextBlock Text="Server ID" Margin="4,12,4,3" Opacity="0.72"/>
-                        <TextBox x:Name="ServerIdTextBox" Margin="4" Padding="8"/>
-                        <TextBlock Text="Voice channel ID" Margin="4,10,4,3" Opacity="0.72"/>
-                        <TextBox x:Name="VoiceChannelIdTextBox" Margin="4" Padding="8"/>
-
-                        <Button x:Name="ConnectDiscordButton" Content="Connect Discord" Click="ConnectDiscordButton_Click" Margin="4,12,4,4"/>
+                        <TextBlock Text="Discord" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                        <Border Background="#FF1A1C21" CornerRadius="7" Padding="12" Margin="4,0,4,10">
+                            <StackPanel>
+                                <TextBlock x:Name="DiscordAccountText" Text="Not connected" FontSize="15" FontWeight="SemiBold"/>
+                                <TextBlock x:Name="DiscordVoiceText" Text="Active voice channel will be detected automatically" Margin="0,5,0,0" Opacity="0.68" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Border>
+                        <Button x:Name="ConnectDiscordButton" Content="Connect Discord" Click="ConnectDiscordButton_Click"/>
                         <Button x:Name="DisconnectDiscordButton" Content="Disconnect Discord" Click="DisconnectDiscordButton_Click" Background="#FF4B4F58"/>
-                        <TextBlock Text="The bot joins muted and only tracks live speaking activity. Ashen Voice does not save or play voice audio." FontSize="11" Margin="4,5,4,2" Opacity="0.65" TextWrapping="Wrap"/>
+                        <TextBlock Text="Uses the Discord desktop app already running on this computer. No bot, bridge, server ID, channel ID, or voice recording." FontSize="11" Margin="4,5,4,2" Opacity="0.65" TextWrapping="Wrap"/>
 
                         <Separator Margin="0,14"/>
                         <TextBlock Text="Application" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,10"/>
@@ -114,8 +111,8 @@
 
                     <Border Grid.Row="1" Background="#FF1A1C21" CornerRadius="7" Padding="14" Margin="0,0,0,12">
                         <StackPanel>
-                            <TextBlock Text="Compact Discord Style" FontSize="16" FontWeight="SemiBold"/>
-                            <TextBlock Text="Only active speakers appear. Each row uses the member's circular Discord avatar, a green speaking ring, their display name, and a subtle translucent card." Margin="0,5,0,0" TextWrapping="Wrap" Opacity="0.72"/>
+                            <TextBlock Text="Direct Discord Connection" FontSize="16" FontWeight="SemiBold"/>
+                            <TextBlock Text="Click Connect Discord once. Ashen Voice follows whichever voice channel your active Discord desktop account joins and only displays members while they are speaking." Margin="0,5,0,0" TextWrapping="Wrap" Opacity="0.72"/>
                         </StackPanel>
                     </Border>
 
@@ -125,8 +122,8 @@
         </Grid>
 
         <DockPanel Grid.Row="3" Margin="0,16,0,0">
-            <TextBlock Text="Phase 3 • Compact Discord speaker integration" Opacity="0.6" DockPanel.Dock="Left"/>
-            <TextBlock x:Name="VersionText" Text="v1.2.0" Opacity="0.6" DockPanel.Dock="Right"/>
+            <TextBlock Text="Phase 3.1 • Local Discord RPC connection probe" Opacity="0.6" DockPanel.Dock="Left"/>
+            <TextBlock x:Name="VersionText" Text="v1.3.0-alpha" Opacity="0.6" DockPanel.Dock="Right"/>
         </DockPanel>
     </Grid>
 </Window>

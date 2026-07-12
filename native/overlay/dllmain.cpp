@@ -493,7 +493,7 @@ namespace
         SelectObject(measurementDc, previousFont);
         DeleteDC(measurementDc);
 
-        const int width = std::clamp(measured.cx + 8, 24, 190);
+        const int width = std::clamp(static_cast<int>(measured.cx) + 8, 24, 190);
         constexpr int height = 28;
 
         BITMAPINFO bitmapInfo{};

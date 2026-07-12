@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
+using System.IO;
 using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;

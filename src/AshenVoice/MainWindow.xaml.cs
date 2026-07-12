@@ -671,7 +671,18 @@ public partial class MainWindow : Window
             DiscordAccountText.Text = $"Connected as {user.DisplayName}";
         });
         rpc.VoiceChannelChanged += channel => SafeDispatch(() => HandleVoiceChannelChanged(channel));
-        rpc.VoiceMemberUpserted += member => SafeDispatch(() => _voiceMembers[member.UserId] = member);
+        rpc.VoiceMemberUpserted += member => SafeDispatch(() =>
+        {
+            if (member.IsBot)
+            {
+                _voiceMembers.Remove(member.UserId);
+                _speakerGenerations.Remove(member.UserId);
+                RemoveActiveSpeaker(member.UserId);
+                return;
+            }
+
+            _voiceMembers[member.UserId] = member;
+        });
         rpc.VoiceMemberRemoved += userId => SafeDispatch(() =>
         {
             _voiceMembers.Remove(userId);
@@ -714,7 +725,10 @@ public partial class MainWindow : Window
 
         foreach (DiscordVoiceMember member in channel.Members)
         {
-            _voiceMembers[member.UserId] = member;
+            if (!member.IsBot)
+            {
+                _voiceMembers[member.UserId] = member;
+            }
         }
 
         DiscordVoiceText.Text = string.IsNullOrWhiteSpace(channel.GuildName)
@@ -728,17 +742,18 @@ public partial class MainWindow : Window
 
     private void HandleSpeakingChanged(string userId, bool speaking)
     {
+        if (!_voiceMembers.TryGetValue(userId, out DiscordVoiceMember? member) || member.IsBot)
+        {
+            _speakerGenerations.Remove(userId);
+            RemoveActiveSpeaker(userId);
+            return;
+        }
+
         int generation = _speakerGenerations.TryGetValue(userId, out int current) ? current + 1 : 1;
         _speakerGenerations[userId] = generation;
 
         if (speaking)
         {
-            if (!_voiceMembers.TryGetValue(userId, out DiscordVoiceMember? member))
-            {
-                member = new DiscordVoiceMember(userId, "Discord user", null, false);
-                _voiceMembers[userId] = member;
-            }
-
             _ = AddOrUpdateActiveSpeakerAsync(member, generation);
             return;
         }
@@ -748,6 +763,11 @@ public partial class MainWindow : Window
 
     private async Task AddOrUpdateActiveSpeakerAsync(DiscordVoiceMember member, int generation)
     {
+        if (member.IsBot)
+        {
+            return;
+        }
+
         string avatarPath = await GetAvatarPathAsync(member);
         await Dispatcher.InvokeAsync(() =>
         {

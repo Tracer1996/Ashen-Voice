@@ -1,4 +1,4 @@
-name: Build Ashen Voice Phase 4.1
+name: Build Ashen Voice Phase 4.2
 
 on:
   workflow_dispatch:
@@ -84,7 +84,7 @@ jobs:
 
           foreach ($file in $required) {
             if (!(Test-Path $file)) {
-              throw "Required Phase 4.1 file is missing: $file"
+              throw "Required Phase 4.2 file is missing: $file"
             }
           }
 
@@ -92,27 +92,27 @@ jobs:
         shell: powershell
         run: choco install innosetup --no-progress -y
 
-      - name: Build Phase 4.1 installer
+      - name: Build Phase 4.2 installer
         shell: powershell
         run: |
           New-Item -ItemType Directory -Force -Path release | Out-Null
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer\AshenVoice.iss"
 
-          if (!(Test-Path "release\AshenVoice-Setup-1.4.1.exe")) {
-            throw "Phase 4.1 installer was not created."
+          if (!(Test-Path "release\AshenVoice-Setup-1.4.2.exe")) {
+            throw "Phase 4.2 installer was not created."
           }
 
       - name: Create checksum
         shell: powershell
         run: |
-          $hash = (Get-FileHash "release\AshenVoice-Setup-1.4.1.exe" -Algorithm SHA256).Hash.ToLower()
-          "$hash AshenVoice-Setup-1.4.1.exe" | Set-Content "release\AshenVoice-Setup-1.4.1.exe.sha256"
+          $hash = (Get-FileHash "release\AshenVoice-Setup-1.4.2.exe" -Algorithm SHA256).Hash.ToLower()
+          "$hash AshenVoice-Setup-1.4.2.exe" | Set-Content "release\AshenVoice-Setup-1.4.2.exe.sha256"
 
-      - name: Upload Phase 4.1 installer
+      - name: Upload Phase 4.2 installer
         uses: actions/upload-artifact@v4
         with:
-          name: Ashen-Voice-Phase4.1-Installer
+          name: Ashen-Voice-Phase4.2-Installer
           path: |
-            release/AshenVoice-Setup-1.4.1.exe
-            release/AshenVoice-Setup-1.4.1.exe.sha256
+            release/AshenVoice-Setup-1.4.2.exe
+            release/AshenVoice-Setup-1.4.2.exe.sha256
           if-no-files-found: error

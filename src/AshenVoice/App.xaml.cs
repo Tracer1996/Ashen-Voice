@@ -16,11 +16,11 @@ public partial class App : System.Windows.Application
 
         if (!createdNew)
         {
-            MessageBox.Show(
+            System.Windows.MessageBox.Show(
                 "Ashen Voice is already running. Check the system tray.",
                 "Ashen Voice",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
+                System.Windows.MessageBoxButton.OK,
+                System.Windows.MessageBoxImage.Information);
             Shutdown();
             return;
         }

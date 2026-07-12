@@ -218,7 +218,7 @@
 
         <DockPanel Grid.Row="3" Margin="0,16,0,0">
             <TextBlock Text="Phase 4 • Settings and visual quality" Opacity="0.6" DockPanel.Dock="Left"/>
-            <TextBlock x:Name="VersionText" Text="v1.4.1" Opacity="0.6" DockPanel.Dock="Right"/>
+            <TextBlock x:Name="VersionText" Text="v1.4.2" Opacity="0.6" DockPanel.Dock="Right"/>
         </DockPanel>
     </Grid>
 </Window>

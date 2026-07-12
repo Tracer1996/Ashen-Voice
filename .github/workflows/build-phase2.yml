@@ -56,6 +56,13 @@ jobs:
           -p:IncludeNativeLibrariesForSelfExtract=true
           -o publish
 
+      - name: Copy native files into published application
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path "publish/native" | Out-Null
+          Copy-Item "native/build/bin/AshenVoiceOverlay.dll" "publish/native/AshenVoiceOverlay.dll" -Force
+          Copy-Item "native/build/bin/AshenVoiceInjector.exe" "publish/native/AshenVoiceInjector.exe" -Force
+
       - name: Verify published native files
         shell: powershell
         run: |

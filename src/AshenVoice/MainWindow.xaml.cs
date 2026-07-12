@@ -115,7 +115,7 @@ public partial class MainWindow : Window
     {
         var names = ProcessNamesTextBox.Text
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(Path.GetFileNameWithoutExtension)
+            .Select(name => Path.GetFileNameWithoutExtension(name) ?? string.Empty)
             .Where(name => !string.IsNullOrWhiteSpace(name))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();

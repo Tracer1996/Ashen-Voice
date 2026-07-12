@@ -22,12 +22,21 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        _settingsDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AshenVoice");
+
+        _settingsDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "AshenVoice");
+
         _settingsPath = Path.Combine(_settingsDirectory, "settings.json");
+
         LoadSettings();
         ConfigureTrayIcon();
 
-        _processTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        _processTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(2)
+        };
+
         _processTimer.Tick += (_, _) => CheckForWow();
         _processTimer.Start();
 
@@ -35,7 +44,7 @@ public partial class MainWindow : Window
         {
             AddLog("Ashen Voice started.");
             AddLog("Phase 1 is active. Overlay and Discord integration are intentionally disabled until later phases.");
-            CheckForWow(forceLog: true);
+            CheckForWow(true);
             UpdateControls();
         };
     }
@@ -48,10 +57,14 @@ public partial class MainWindow : Window
             Icon = System.Drawing.SystemIcons.Application,
             Visible = true
         };
+
         _trayIcon.DoubleClick += (_, _) => RestoreFromTray();
+
         var menu = new Forms.ContextMenuStrip();
+
         menu.Items.Add("Open Ashen Voice", null, (_, _) => RestoreFromTray());
         menu.Items.Add("Exit", null, (_, _) => ExitApplication());
+
         _trayIcon.ContextMenuStrip = menu;
     }
 
@@ -60,8 +73,14 @@ public partial class MainWindow : Window
         try
         {
             Directory.CreateDirectory(_settingsDirectory);
+
             if (File.Exists(_settingsPath))
-                _settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(_settingsPath)) ?? new AppSettings();
+            {
+                _settings =
+                    JsonSerializer.Deserialize<AppSettings>(
+                        File.ReadAllText(_settingsPath))
+                    ?? new AppSettings();
+            }
         }
         catch
         {
@@ -76,103 +95,187 @@ public partial class MainWindow : Window
     private void SaveSettings()
     {
         Directory.CreateDirectory(_settingsDirectory);
-        File.WriteAllText(_settingsPath, JsonSerializer.Serialize(_settings, new JsonSerializerOptions { WriteIndented = true }));
+
+        File.WriteAllText(
+            _settingsPath,
+            JsonSerializer.Serialize(
+                _settings,
+                new JsonSerializerOptions
+                {
+                    WriteIndented = true
+                }));
     }
 
     private void SettingChanged(object sender, RoutedEventArgs e)
     {
-        if (!IsLoaded) return;
+        if (!IsLoaded)
+            return;
+
         _settings.MinimizeToTray = MinimizeToTrayCheckBox.IsChecked == true;
         _settings.StartWithWindows = StartWithWindowsCheckBox.IsChecked == true;
+
         SetStartupRegistration(_settings.StartWithWindows);
+
         SaveSettings();
     }
 
     private void ProcessNamesTextBox_LostFocus(object sender, RoutedEventArgs e)
     {
-        var names = ProcessNamesTextBox.Text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(n => Path.GetFileNameWithoutExtension(n))
-            .Where(n => !string.IsNullOrWhiteSpace(n))
+        var names = ProcessNamesTextBox.Text
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(Path.GetFileNameWithoutExtension)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-        if (names.Count == 0) names.Add("Wow");
+
+        if (names.Count == 0)
+            names.Add("Wow");
+
         _settings.ProcessNames = names;
+
         ProcessNamesTextBox.Text = string.Join(", ", names);
+
         SaveSettings();
+
         AddLog("Updated WoW process names.");
-        CheckForWow(forceLog: true);
+
+        CheckForWow(true);
     }
 
     private static void SetStartupRegistration(bool enabled)
     {
-        using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", writable: true);
-        if (key is null) return;
+        using var key =
+            Registry.CurrentUser.OpenSubKey(
+                @"Software\Microsoft\Windows\CurrentVersion\Run",
+                true);
+
+        if (key == null)
+            return;
+
         if (enabled)
-            key.SetValue("AshenVoice", $"\"{Environment.ProcessPath}\" --minimized");
+        {
+            key.SetValue(
+                "AshenVoice",
+                $"\"{Environment.ProcessPath}\" --minimized");
+        }
         else
-            key.DeleteValue("AshenVoice", throwOnMissingValue: false);
+        {
+            key.DeleteValue("AshenVoice", false);
+        }
     }
 
     private void CheckForWow(bool forceLog = false)
     {
-        var detected = _settings.ProcessNames.Any(name =>
+        bool detected = _settings.ProcessNames.Any(name =>
         {
-            try { return Process.GetProcessesByName(name).Length > 0; }
-            catch { return false; }
+            try
+            {
+                return Process.GetProcessesByName(name).Length > 0;
+            }
+            catch
+            {
+                return false;
+            }
         });
 
-        WowStatusText.Text = detected ? "Detected" : "Not detected";
-        WowStatusText.Foreground = detected ? System.Windows.Media.Brushes.LightGreen : System.Windows.Media.Brushes.LightGray;
+        WowStatusText.Text =
+            detected
+                ? "Detected"
+                : "Not detected";
+
+        WowStatusText.Foreground =
+            detected
+                ? System.Windows.Media.Brushes.LightGreen
+                : System.Windows.Media.Brushes.LightGray;
 
         if (forceLog || detected != _lastWowDetected)
-            AddLog(detected ? "World of Warcraft client detected." : "World of Warcraft client not detected.");
+        {
+            AddLog(
+                detected
+                    ? "World of Warcraft client detected."
+                    : "World of Warcraft client not detected.");
+        }
+
         _lastWowDetected = detected;
     }
 
     private void StartButton_Click(object sender, RoutedEventArgs e)
     {
         _serviceRunning = true;
+
         _processTimer.Start();
+
         AddLog("Ashen Voice monitoring started.");
-        CheckForWow(forceLog: true);
+
+        CheckForWow(true);
+
         UpdateControls();
     }
 
     private void StopButton_Click(object sender, RoutedEventArgs e)
     {
         _serviceRunning = false;
+
         _processTimer.Stop();
+
         WowStatusText.Text = "Monitoring stopped";
-        WowStatusText.Foreground = System.Windows.Media.Brushes.LightGray;
+
+        WowStatusText.Foreground =
+            System.Windows.Media.Brushes.LightGray;
+
         AddLog("Ashen Voice monitoring stopped.");
+
         UpdateControls();
     }
 
-    private void CheckNowButton_Click(object sender, RoutedEventArgs e) => CheckForWow(forceLog: true);
+    private void CheckNowButton_Click(object sender, RoutedEventArgs e)
+    {
+        CheckForWow(true);
+    }
 
-    private void ClearLogButton_Click(object sender, RoutedEventArgs e) => LogTextBox.Clear();
+    private void ClearLogButton_Click(object sender, RoutedEventArgs e)
+    {
+        LogTextBox.Clear();
+    }
 
     private void UpdateControls()
     {
-        AppStatusText.Text = _serviceRunning ? "Running" : "Stopped";
-        AppStatusText.Foreground = _serviceRunning ? System.Windows.Media.Brushes.LightGreen : System.Windows.Media.Brushes.OrangeRed;
+        AppStatusText.Text =
+            _serviceRunning
+                ? "Running"
+                : "Stopped";
+
+        AppStatusText.Foreground =
+            _serviceRunning
+                ? System.Windows.Media.Brushes.LightGreen
+                : System.Windows.Media.Brushes.OrangeRed;
+
         StartButton.IsEnabled = !_serviceRunning;
         StopButton.IsEnabled = _serviceRunning;
     }
 
     private void AddLog(string message)
     {
-        LogTextBox.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}");
+        LogTextBox.AppendText(
+            $"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}");
+
         LogTextBox.ScrollToEnd();
     }
 
     protected override void OnStateChanged(EventArgs e)
     {
         base.OnStateChanged(e);
-        if (WindowState == WindowState.Minimized && _settings.MinimizeToTray)
+
+        if (WindowState == WindowState.Minimized &&
+            _settings.MinimizeToTray)
         {
             Hide();
-            _trayIcon?.ShowBalloonTip(1500, "Ashen Voice", "Ashen Voice is still running in the system tray.", Forms.ToolTipIcon.Info);
+
+            _trayIcon?.ShowBalloonTip(
+                1500,
+                "Ashen Voice",
+                "Ashen Voice is still running in the system tray.",
+                Forms.ToolTipIcon.Info);
         }
     }
 
@@ -184,7 +287,9 @@ public partial class MainWindow : Window
             Hide();
             return;
         }
+
         _trayIcon?.Dispose();
+
         base.OnClosing(e);
     }
 
@@ -199,13 +304,22 @@ public partial class MainWindow : Window
     {
         _allowClose = true;
         _trayIcon?.Dispose();
-        Application.Current.Shutdown();
+
+        System.Windows.Application.Current.Shutdown();
     }
 }
 
 public sealed class AppSettings
 {
     public bool MinimizeToTray { get; set; } = true;
+
     public bool StartWithWindows { get; set; }
-    public List<string> ProcessNames { get; set; } = new() { "Wow", "WoW", "OctoWoW" };
+
+    public List<string> ProcessNames { get; set; } =
+        new()
+        {
+            "Wow",
+            "WoW",
+            "OctoWoW"
+        };
 }

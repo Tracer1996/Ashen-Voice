@@ -1,5 +1,5 @@
 #define MyAppName "Ashen Voice"
-#define MyAppVersion "1.4.0"
+#define MyAppVersion "1.4.1"
 #define MyAppPublisher "Ashen Voice"
 #define MyAppExeName "AshenVoice.exe"
 
@@ -36,7 +36,7 @@ Name: "{autodesktop}\Ashen Voice"; Filename: "{app}\{#MyAppExeName}"; Tasks: des
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
 
 [Run]
-Filename: "{app}\AshenVoice.exe"; Description: "Launch Ashen Voice"; Flags: nowait postinstall skipifsilent shellexec
+Filename: "{app}\{#MyAppExeName}"; Description: "Launch Ashen Voice"; Flags: nowait postinstall skipifsilent shellexec
 
 [UninstallRun]
 Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""Ashen Voice"" /F"; Flags: runhidden; RunOnceId: "RemoveAshenVoiceStartupTask"

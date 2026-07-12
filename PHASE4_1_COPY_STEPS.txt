@@ -1,0 +1,16 @@
+ASHEN VOICE PHASE 4.1
+
+1. Extract this ZIP.
+2. Open GitHub Desktop.
+3. Select Ashen-Voice.
+4. Click Repository > Show in Explorer.
+5. Copy every file and folder from this extracted AshenVoice folder into the repository folder.
+6. Replace existing files when asked.
+7. Open .github\workflows in the repository.
+8. Keep build-phase4.yml and delete older build workflow files.
+9. In GitHub Desktop, commit with: Add Phase 4.1 settings and visual improvements
+10. Click Push origin.
+11. Open GitHub > Actions > Build Ashen Voice Phase 4.1.
+12. Run the workflow.
+13. Download the Ashen-Voice-Phase4.1-Installer artifact.
+14. Extract it and run AshenVoice-Setup-1.4.1.exe.

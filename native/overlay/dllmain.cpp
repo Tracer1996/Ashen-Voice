@@ -113,6 +113,58 @@ namespace
         return std::wstring(localAppData) + L"\\AshenVoice";
     }
 
+    bool ReadFileShared(const std::wstring& path, std::string& contents)
+    {
+        HANDLE file = CreateFileW(
+            path.c_str(),
+            GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            nullptr,
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN,
+            nullptr);
+
+        if (file == INVALID_HANDLE_VALUE)
+        {
+            return false;
+        }
+
+        LARGE_INTEGER size{};
+        if (!GetFileSizeEx(file, &size) || size.QuadPart < 0 || size.QuadPart > 4 * 1024 * 1024)
+        {
+            CloseHandle(file);
+            return false;
+        }
+
+        contents.assign(static_cast<std::size_t>(size.QuadPart), '\0');
+        std::size_t offset = 0;
+        while (offset < contents.size())
+        {
+            DWORD bytesRead = 0;
+            const DWORD remaining = static_cast<DWORD>(std::min<std::size_t>(
+                contents.size() - offset,
+                static_cast<std::size_t>(MAXDWORD)));
+
+            if (!ReadFile(file, contents.data() + offset, remaining, &bytesRead, nullptr))
+            {
+                CloseHandle(file);
+                contents.clear();
+                return false;
+            }
+
+            if (bytesRead == 0)
+            {
+                break;
+            }
+
+            offset += bytesRead;
+        }
+
+        CloseHandle(file);
+        contents.resize(offset);
+        return true;
+    }
+
     void WriteNativeLog(const wchar_t* message)
     {
         const std::wstring directory = LocalAppDataDirectory();
@@ -244,13 +296,14 @@ namespace
             g_settingsPath = directory + L"\\overlay-settings.ini";
         }
 
-        std::ifstream input(std::filesystem::path(g_settingsPath), std::ios::binary);
-        if (!input)
+        std::string settingsBytes;
+        if (!ReadFileShared(g_settingsPath, settingsBytes))
         {
             return;
         }
 
         OverlaySettings next = g_settings;
+        std::istringstream input(settingsBytes);
         std::string line;
         while (std::getline(input, line))
         {
@@ -267,8 +320,8 @@ namespace
                 else if (value == "BottomLeft") next.corner = OverlayCorner::BottomLeft;
                 else next.corner = OverlayCorner::TopRight;
             }
-            else if (key == "HorizontalOffset") next.horizontalOffset = ParseInteger(value, next.horizontalOffset, 0, 1000);
-            else if (key == "VerticalOffset") next.verticalOffset = ParseInteger(value, next.verticalOffset, 0, 1000);
+            else if (key == "HorizontalOffset") next.horizontalOffset = ParseInteger(value, next.horizontalOffset, -10000, 10000);
+            else if (key == "VerticalOffset") next.verticalOffset = ParseInteger(value, next.verticalOffset, -10000, 10000);
             else if (key == "Scale") next.scale = ParseFloat(value, next.scale, 0.75f, 1.50f);
             else if (key == "CardWidth") next.cardWidth = ParseInteger(value, next.cardWidth, 150, 300);
             else if (key == "AvatarSize") next.avatarSize = ParseInteger(value, next.avatarSize, 24, 52);
@@ -320,16 +373,14 @@ namespace
             g_statePath = directory + L"\\speakers.tsv";
         }
 
-        std::ifstream input(std::filesystem::path(g_statePath), std::ios::binary);
-        if (!input)
+        std::string stateBytes;
+        if (!ReadFileShared(g_statePath, stateBytes))
         {
             g_speakers.clear();
             return;
         }
 
-        std::ostringstream buffer;
-        buffer << input.rdbuf();
-        std::istringstream lines(buffer.str());
+        std::istringstream lines(stateBytes);
 
         std::vector<Speaker> speakers;
         std::string line;

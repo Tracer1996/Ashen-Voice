@@ -1,4 +1,4 @@
-# Ashen Voice 1.4.0
+# Ashen Voice 1.4.1
 
 Discord speaker overlay for 32-bit DirectX 9 World of Warcraft clients.
 
@@ -19,9 +19,9 @@ Discord speaker overlay for 32-bit DirectX 9 World of Warcraft clients.
 
 1. Add the repository variable `DISCORD_CLIENT_ID` in GitHub.
 2. Open **Actions**.
-3. Run **Build Ashen Voice Phase 4**.
+3. Run **Build Ashen Voice Phase 4.1**.
 4. Download **Ashen-Voice-Phase4-Installer**.
-5. Extract and run `AshenVoice-Setup-1.4.0.exe`.
+5. Extract and run `AshenVoice-Setup-1.4.1.exe`.
 
 ## Use
 

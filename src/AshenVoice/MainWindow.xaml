@@ -110,11 +110,11 @@
                                         <ColumnDefinition Width="*"/>
                                     </Grid.ColumnDefinitions>
                                     <StackPanel Grid.Column="0">
-                                        <TextBlock Text="Horizontal offset" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,5"/>
+                                        <TextBlock Text="Horizontal offset (-10000 to 10000)" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,5"/>
                                         <TextBox x:Name="HorizontalOffsetTextBox" Text="18" Padding="8" LostFocus="OverlayNumberTextBox_LostFocus"/>
                                     </StackPanel>
                                     <StackPanel Grid.Column="2">
-                                        <TextBlock Text="Vertical offset" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,5"/>
+                                        <TextBlock Text="Vertical offset (-10000 to 10000)" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,5"/>
                                         <TextBox x:Name="VerticalOffsetTextBox" Text="34" Padding="8" LostFocus="OverlayNumberTextBox_LostFocus"/>
                                     </StackPanel>
                                 </Grid>
@@ -218,7 +218,7 @@
 
         <DockPanel Grid.Row="3" Margin="0,16,0,0">
             <TextBlock Text="Phase 4 • Settings and visual quality" Opacity="0.6" DockPanel.Dock="Left"/>
-            <TextBlock x:Name="VersionText" Text="v1.4.0" Opacity="0.6" DockPanel.Dock="Right"/>
+            <TextBlock x:Name="VersionText" Text="v1.4.1" Opacity="0.6" DockPanel.Dock="Right"/>
         </DockPanel>
     </Grid>
 </Window>

@@ -25,6 +25,8 @@ public partial class MainWindow : Window
     private readonly Dictionary<string, DiscordVoiceMember> _voiceMembers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ActiveSpeaker> _activeSpeakers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> _speakerGenerations = new(StringComparer.Ordinal);
+    private readonly object _speakerStateWriteLock = new();
+    private readonly object _overlaySettingsWriteLock = new();
 
     private AppSettings _settings = new();
     private Forms.NotifyIcon? _trayIcon;
@@ -196,8 +198,8 @@ public partial class MainWindow : Window
             _settings.OverlayPosition = position;
         }
 
-        _settings.HorizontalOffset = ParseClampedInteger(HorizontalOffsetTextBox.Text, _settings.HorizontalOffset, 0, 1000);
-        _settings.VerticalOffset = ParseClampedInteger(VerticalOffsetTextBox.Text, _settings.VerticalOffset, 0, 1000);
+        _settings.HorizontalOffset = ParseClampedInteger(HorizontalOffsetTextBox.Text, _settings.HorizontalOffset, -10000, 10000);
+        _settings.VerticalOffset = ParseClampedInteger(VerticalOffsetTextBox.Text, _settings.VerticalOffset, -10000, 10000);
         _settings.OverlayScale = Math.Clamp(OverlayScaleSlider.Value, 0.75, 1.50);
         _settings.CardWidth = Math.Clamp((int)Math.Round(CardWidthSlider.Value), 150, 300);
         _settings.AvatarSize = Math.Clamp((int)Math.Round(AvatarSizeSlider.Value), 24, 52);
@@ -290,9 +292,10 @@ public partial class MainWindow : Window
                 $"ShowNames={(_settings.ShowNames ? 1 : 0)}"
             };
 
-            string temporary = _overlaySettingsPath + ".tmp";
-            File.WriteAllLines(temporary, lines, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-            File.Move(temporary, _overlaySettingsPath, overwrite: true);
+            lock (_overlaySettingsWriteLock)
+            {
+                WriteTextFileAtomically(_overlaySettingsPath, string.Join(Environment.NewLine, lines));
+            }
         }
         catch (Exception exception)
         {
@@ -818,9 +821,10 @@ public partial class MainWindow : Window
                 .Take(_settings.MaximumSpeakers)
                 .Select(speaker => $"{CleanSpeakerField(speaker.DisplayName)}\t{CleanSpeakerField(speaker.AvatarPath)}");
 
-            string temporary = _speakerStatePath + ".tmp";
-            File.WriteAllLines(temporary, lines, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-            File.Move(temporary, _speakerStatePath, overwrite: true);
+            lock (_speakerStateWriteLock)
+            {
+                WriteTextFileAtomically(_speakerStatePath, string.Join(Environment.NewLine, lines));
+            }
         }
         catch (Exception exception)
         {
@@ -1128,10 +1132,12 @@ public partial class MainWindow : Window
             return;
         }
 
-        File.WriteAllText(
-            _speakerStatePath,
-            $"Methl\t{Environment.NewLine}Danari\t{Environment.NewLine}Poetry\t",
-            Encoding.UTF8);
+        lock (_speakerStateWriteLock)
+        {
+            WriteTextFileAtomically(
+                _speakerStatePath,
+                $"Methl\t{Environment.NewLine}Danari\t{Environment.NewLine}Poetry\t");
+        }
         AddLog("Overlay preview started.");
         PreviewOverlayButton.IsEnabled = false;
         await Task.Delay(TimeSpan.FromSeconds(8));
@@ -1177,10 +1183,70 @@ public partial class MainWindow : Window
     {
         try
         {
-            File.WriteAllText(_speakerStatePath, string.Empty, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            lock (_speakerStateWriteLock)
+            {
+                WriteTextFileAtomically(_speakerStatePath, string.Empty);
+            }
         }
         catch
         {
+        }
+    }
+
+    private static void WriteTextFileAtomically(string destinationPath, string content)
+    {
+        string directory = Path.GetDirectoryName(destinationPath)
+            ?? throw new InvalidOperationException("The destination directory is unavailable.");
+        Directory.CreateDirectory(directory);
+
+        string temporaryPath = Path.Combine(
+            directory,
+            $"{Path.GetFileName(destinationPath)}.{Environment.ProcessId}.{Guid.NewGuid():N}.tmp");
+
+        try
+        {
+            using (var stream = new FileStream(
+                       temporaryPath,
+                       FileMode.CreateNew,
+                       FileAccess.Write,
+                       FileShare.Read,
+                       bufferSize: 4096,
+                       FileOptions.WriteThrough))
+            using (var writer = new StreamWriter(
+                       stream,
+                       new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
+            {
+                writer.Write(content);
+                writer.Flush();
+                stream.Flush(flushToDisk: true);
+            }
+
+            const int maximumAttempts = 6;
+            for (int attempt = 1; attempt <= maximumAttempts; attempt++)
+            {
+                try
+                {
+                    File.Move(temporaryPath, destinationPath, overwrite: true);
+                    break;
+                }
+                catch (IOException) when (attempt < maximumAttempts)
+                {
+                    Thread.Sleep(attempt * 20);
+                }
+            }
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(temporaryPath))
+                {
+                    File.Delete(temporaryPath);
+                }
+            }
+            catch
+            {
+            }
         }
     }
 

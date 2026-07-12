@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>AshenVoice</AssemblyName>
     <RootNamespace>AshenVoice</RootNamespace>
-    <Version>1.4.0</Version>
+    <Version>1.4.1</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 

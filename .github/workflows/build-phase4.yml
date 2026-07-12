@@ -1,0 +1,118 @@
+name: Build Ashen Voice Phase 4
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Configure Discord Application ID
+        shell: powershell
+        run: |
+          $clientId = "${{ vars.DISCORD_CLIENT_ID }}"
+          if ($clientId -notmatch '^\d{17,20}$') {
+            throw "Create a GitHub repository variable named DISCORD_CLIENT_ID containing the Application ID from the Discord Developer Portal."
+          }
+
+          $path = "src/AshenVoice/DiscordBuildConfig.cs"
+          $content = Get-Content $path -Raw
+          if (!$content.Contains("__DISCORD_CLIENT_ID__")) {
+            throw "Discord Application ID placeholder was not found in $path."
+          }
+
+          $content = $content.Replace("__DISCORD_CLIENT_ID__", $clientId)
+          Set-Content -Path $path -Value $content -NoNewline
+
+      - name: Configure Win32 native build
+        run: cmake -S native -B native/build -A Win32
+
+      - name: Compile DirectX 9 overlay and injector
+        run: cmake --build native/build --config Release --parallel
+
+      - name: Stage native files for application build
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path "src/AshenVoice/native" | Out-Null
+          Copy-Item "native/build/bin/AshenVoiceOverlay.dll" "src/AshenVoice/native/AshenVoiceOverlay.dll" -Force
+          Copy-Item "native/build/bin/AshenVoiceInjector.exe" "src/AshenVoice/native/AshenVoiceInjector.exe" -Force
+
+      - name: Restore application
+        run: dotnet restore src/AshenVoice/AshenVoice.csproj
+
+      - name: Build application
+        run: dotnet build src/AshenVoice/AshenVoice.csproj -c Release --no-restore
+
+      - name: Publish self-contained application
+        run: >-
+          dotnet publish src/AshenVoice/AshenVoice.csproj
+          -c Release
+          -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -o publish
+
+      - name: Package native overlay files
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path "publish/native" | Out-Null
+          Copy-Item "native/build/bin/AshenVoiceOverlay.dll" "publish/native/AshenVoiceOverlay.dll" -Force
+          Copy-Item "native/build/bin/AshenVoiceInjector.exe" "publish/native/AshenVoiceInjector.exe" -Force
+
+      - name: Verify packaged files
+        shell: powershell
+        run: |
+          $required = @(
+            "publish/AshenVoice.exe",
+            "publish/native/AshenVoiceOverlay.dll",
+            "publish/native/AshenVoiceInjector.exe"
+          )
+
+          foreach ($file in $required) {
+            if (!(Test-Path $file)) {
+              throw "Required Phase 4 file is missing: $file"
+            }
+          }
+
+      - name: Install Inno Setup
+        shell: powershell
+        run: choco install innosetup --no-progress -y
+
+      - name: Build Phase 4 installer
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer\AshenVoice.iss"
+
+          if (!(Test-Path "release\AshenVoice-Setup-1.4.0.exe")) {
+            throw "Phase 4 installer was not created."
+          }
+
+      - name: Create checksum
+        shell: powershell
+        run: |
+          $hash = (Get-FileHash "release\AshenVoice-Setup-1.4.0.exe" -Algorithm SHA256).Hash.ToLower()
+          "$hash AshenVoice-Setup-1.4.0.exe" | Set-Content "release\AshenVoice-Setup-1.4.0.exe.sha256"
+
+      - name: Upload Phase 4 installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ashen-Voice-Phase4-Installer
+          path: |
+            release/AshenVoice-Setup-1.4.0.exe
+            release/AshenVoice-Setup-1.4.0.exe.sha256
+          if-no-files-found: error

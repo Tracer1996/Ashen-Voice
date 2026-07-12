@@ -11,6 +11,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -53,12 +54,39 @@ namespace
         std::wstring avatarPath;
     };
 
+    enum class OverlayCorner
+    {
+        TopRight,
+        TopLeft,
+        BottomRight,
+        BottomLeft
+    };
+
+    struct OverlaySettings
+    {
+        OverlayCorner corner = OverlayCorner::TopRight;
+        int horizontalOffset = 18;
+        int verticalOffset = 34;
+        float scale = 1.0f;
+        int cardWidth = 218;
+        int avatarSize = 36;
+        int fontSize = 17;
+        int backgroundOpacity = 70;
+        int ringThickness = 3;
+        std::size_t maximumSpeakers = 5;
+        bool showAvatars = true;
+        bool showNames = true;
+    };
+
     constexpr DWORD ColorVertexFormat = D3DFVF_XYZRHW | D3DFVF_DIFFUSE;
     constexpr DWORD TextureVertexFormat = D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1;
-    constexpr std::size_t MaximumSpeakers = 5;
+    constexpr std::size_t MaximumSupportedSpeakers = 10;
 
     std::wstring g_statePath;
+    std::wstring g_settingsPath;
     ULONGLONG g_lastStateRead = 0;
+    ULONGLONG g_lastSettingsRead = 0;
+    OverlaySettings g_settings;
     std::vector<Speaker> g_speakers;
     IDirect3DDevice9* g_textureDevice = nullptr;
     IWICImagingFactory* g_wicFactory = nullptr;
@@ -153,8 +181,128 @@ namespace
         return result;
     }
 
+    void ReleaseTextures();
+
+    std::string Trim(std::string value)
+    {
+        const auto first = value.find_first_not_of(" \t\r\n");
+        if (first == std::string::npos)
+        {
+            return {};
+        }
+        const auto last = value.find_last_not_of(" \t\r\n");
+        return value.substr(first, last - first + 1);
+    }
+
+    bool ParseBoolean(const std::string& value, bool fallback)
+    {
+        if (value == "1" || value == "true" || value == "True") return true;
+        if (value == "0" || value == "false" || value == "False") return false;
+        return fallback;
+    }
+
+    int ParseInteger(const std::string& value, int fallback, int minimum, int maximum)
+    {
+        try
+        {
+            return std::clamp(std::stoi(value), minimum, maximum);
+        }
+        catch (...)
+        {
+            return fallback;
+        }
+    }
+
+    float ParseFloat(const std::string& value, float fallback, float minimum, float maximum)
+    {
+        try
+        {
+            return std::clamp(std::stof(value), minimum, maximum);
+        }
+        catch (...)
+        {
+            return fallback;
+        }
+    }
+
+    void RefreshSettings()
+    {
+        const ULONGLONG now = GetTickCount64();
+        if (now - g_lastSettingsRead < 250)
+        {
+            return;
+        }
+        g_lastSettingsRead = now;
+
+        if (g_settingsPath.empty())
+        {
+            const std::wstring directory = LocalAppDataDirectory();
+            if (directory.empty())
+            {
+                return;
+            }
+            g_settingsPath = directory + L"\\overlay-settings.ini";
+        }
+
+        std::ifstream input(std::filesystem::path(g_settingsPath), std::ios::binary);
+        if (!input)
+        {
+            return;
+        }
+
+        OverlaySettings next = g_settings;
+        std::string line;
+        while (std::getline(input, line))
+        {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            const std::size_t separator = line.find('=');
+            if (separator == std::string::npos) continue;
+
+            const std::string key = Trim(line.substr(0, separator));
+            const std::string value = Trim(line.substr(separator + 1));
+            if (key == "Position")
+            {
+                if (value == "TopLeft") next.corner = OverlayCorner::TopLeft;
+                else if (value == "BottomRight") next.corner = OverlayCorner::BottomRight;
+                else if (value == "BottomLeft") next.corner = OverlayCorner::BottomLeft;
+                else next.corner = OverlayCorner::TopRight;
+            }
+            else if (key == "HorizontalOffset") next.horizontalOffset = ParseInteger(value, next.horizontalOffset, 0, 1000);
+            else if (key == "VerticalOffset") next.verticalOffset = ParseInteger(value, next.verticalOffset, 0, 1000);
+            else if (key == "Scale") next.scale = ParseFloat(value, next.scale, 0.75f, 1.50f);
+            else if (key == "CardWidth") next.cardWidth = ParseInteger(value, next.cardWidth, 150, 300);
+            else if (key == "AvatarSize") next.avatarSize = ParseInteger(value, next.avatarSize, 24, 52);
+            else if (key == "FontSize") next.fontSize = ParseInteger(value, next.fontSize, 12, 22);
+            else if (key == "BackgroundOpacity") next.backgroundOpacity = ParseInteger(value, next.backgroundOpacity, 0, 100);
+            else if (key == "RingThickness") next.ringThickness = ParseInteger(value, next.ringThickness, 1, 5);
+            else if (key == "MaximumSpeakers") next.maximumSpeakers = static_cast<std::size_t>(ParseInteger(value, static_cast<int>(next.maximumSpeakers), 1, static_cast<int>(MaximumSupportedSpeakers)));
+            else if (key == "ShowAvatars") next.showAvatars = ParseBoolean(value, next.showAvatars);
+            else if (key == "ShowNames") next.showNames = ParseBoolean(value, next.showNames);
+        }
+
+        if (!next.showAvatars && !next.showNames)
+        {
+            next.showNames = true;
+        }
+
+        const bool texturesChanged =
+            next.avatarSize != g_settings.avatarSize ||
+            next.fontSize != g_settings.fontSize ||
+            next.ringThickness != g_settings.ringThickness ||
+            next.showAvatars != g_settings.showAvatars ||
+            next.showNames != g_settings.showNames;
+
+        g_settings = next;
+        if (texturesChanged)
+        {
+            ReleaseTextures();
+        }
+    }
+
     void RefreshSpeakers()
     {
+        RefreshSettings();
+
         const ULONGLONG now = GetTickCount64();
         if (now - g_lastStateRead < 100)
         {
@@ -185,7 +333,7 @@ namespace
 
         std::vector<Speaker> speakers;
         std::string line;
-        while (speakers.size() < MaximumSpeakers && std::getline(lines, line))
+        while (speakers.size() < g_settings.maximumSpeakers && std::getline(lines, line))
         {
             if (!line.empty() && line.back() == '\r')
             {
@@ -343,17 +491,18 @@ namespace
         const std::wstring& name,
         const std::wstring& avatarPath)
     {
-        constexpr UINT textureSize = 36;
-        constexpr UINT imageSize = 30;
-        constexpr int imageOffset = 3;
-        constexpr float center = 17.5f;
-        constexpr float outerRadius = 17.5f;
-        constexpr float innerRadius = 15.0f;
+        const UINT logicalSize = static_cast<UINT>(g_settings.avatarSize);
+        constexpr UINT supersample = 2;
+        const UINT textureSize = logicalSize * supersample;
+        const UINT ringPixels = static_cast<UINT>(std::max(1, g_settings.ringThickness)) * supersample;
+        const UINT imageSize = std::max<UINT>(1, textureSize - ringPixels * 2u);
+        const float center = (static_cast<float>(textureSize) - 1.0f) * 0.5f;
+        const float outerRadius = center;
+        const float innerRadius = std::max(1.0f, outerRadius - static_cast<float>(ringPixels));
         const std::uint32_t ringColor = D3DCOLOR_ARGB(255, 35, 224, 117);
         const std::uint32_t fallbackColor = HashColor(name);
 
         std::vector<std::uint32_t> sourcePixels(static_cast<std::size_t>(imageSize) * imageSize, fallbackColor);
-        bool loadedImage = false;
 
         if (!avatarPath.empty() && std::filesystem::exists(std::filesystem::path(avatarPath)) && EnsureWicFactory())
         {
@@ -363,28 +512,11 @@ namespace
             IWICFormatConverter* converter = nullptr;
 
             HRESULT result = g_wicFactory->CreateDecoderFromFilename(
-                avatarPath.c_str(),
-                nullptr,
-                GENERIC_READ,
-                WICDecodeMetadataCacheOnLoad,
-                &decoder);
-
-            if (SUCCEEDED(result))
-            {
-                result = decoder->GetFrame(0, &frame);
-            }
-            if (SUCCEEDED(result))
-            {
-                result = g_wicFactory->CreateBitmapScaler(&scaler);
-            }
-            if (SUCCEEDED(result))
-            {
-                result = scaler->Initialize(frame, imageSize, imageSize, WICBitmapInterpolationModeFant);
-            }
-            if (SUCCEEDED(result))
-            {
-                result = g_wicFactory->CreateFormatConverter(&converter);
-            }
+                avatarPath.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnLoad, &decoder);
+            if (SUCCEEDED(result)) result = decoder->GetFrame(0, &frame);
+            if (SUCCEEDED(result)) result = g_wicFactory->CreateBitmapScaler(&scaler);
+            if (SUCCEEDED(result)) result = scaler->Initialize(frame, imageSize, imageSize, WICBitmapInterpolationModeFant);
+            if (SUCCEEDED(result)) result = g_wicFactory->CreateFormatConverter(&converter);
             if (SUCCEEDED(result))
             {
                 result = converter->Initialize(
@@ -399,12 +531,7 @@ namespace
             if (SUCCEEDED(result))
             {
                 std::vector<std::uint8_t> bytes(static_cast<std::size_t>(imageSize) * imageSize * 4u);
-                result = converter->CopyPixels(
-                    nullptr,
-                    imageSize * 4u,
-                    static_cast<UINT>(bytes.size()),
-                    bytes.data());
-
+                result = converter->CopyPixels(nullptr, imageSize * 4u, static_cast<UINT>(bytes.size()), bytes.data());
                 if (SUCCEEDED(result))
                 {
                     for (std::size_t index = 0; index < sourcePixels.size(); ++index)
@@ -415,7 +542,6 @@ namespace
                         const std::uint8_t alpha = bytes[index * 4u + 3u];
                         sourcePixels[index] = D3DCOLOR_ARGB(alpha, red, green, blue);
                     }
-                    loadedImage = true;
                 }
             }
 
@@ -433,25 +559,32 @@ namespace
                 const float dx = static_cast<float>(x) - center;
                 const float dy = static_cast<float>(y) - center;
                 const float distance = std::sqrt(dx * dx + dy * dy);
+                const float outerCoverage = std::clamp(outerRadius + 0.75f - distance, 0.0f, 1.0f);
+                const float imageCoverage = std::clamp(innerRadius + 0.75f - distance, 0.0f, 1.0f);
+                const float ringCoverage = std::max(0.0f, outerCoverage - imageCoverage);
                 const std::size_t outputIndex = static_cast<std::size_t>(y) * textureSize + x;
 
-                if (distance <= outerRadius && distance > innerRadius)
+                if (outerCoverage <= 0.0f)
                 {
-                    outputPixels[outputIndex] = ringColor;
+                    continue;
                 }
-                else if (distance <= innerRadius)
+
+                if (imageCoverage > 0.0f)
                 {
-                    const int sourceX = std::clamp(static_cast<int>(x) - imageOffset, 0, static_cast<int>(imageSize) - 1);
-                    const int sourceY = std::clamp(static_cast<int>(y) - imageOffset, 0, static_cast<int>(imageSize) - 1);
-                    const std::size_t sourceIndex = static_cast<std::size_t>(sourceY) * imageSize + static_cast<std::size_t>(sourceX);
-                    outputPixels[outputIndex] = sourcePixels[sourceIndex];
+                    const int sourceX = std::clamp(static_cast<int>(x) - static_cast<int>(ringPixels), 0, static_cast<int>(imageSize) - 1);
+                    const int sourceY = std::clamp(static_cast<int>(y) - static_cast<int>(ringPixels), 0, static_cast<int>(imageSize) - 1);
+                    const std::uint32_t source = sourcePixels[static_cast<std::size_t>(sourceY) * imageSize + static_cast<std::size_t>(sourceX)];
+                    const std::uint8_t sourceAlpha = static_cast<std::uint8_t>((source >> 24u) & 0xFFu);
+                    const std::uint8_t alpha = static_cast<std::uint8_t>(std::clamp(imageCoverage * sourceAlpha, 0.0f, 255.0f));
+                    outputPixels[outputIndex] = (source & 0x00FFFFFFu) | (static_cast<std::uint32_t>(alpha) << 24u);
+                }
+
+                if (ringCoverage > 0.0f && imageCoverage < 1.0f)
+                {
+                    const std::uint8_t alpha = static_cast<std::uint8_t>(std::clamp(ringCoverage * 255.0f, 0.0f, 255.0f));
+                    outputPixels[outputIndex] = (ringColor & 0x00FFFFFFu) | (static_cast<std::uint32_t>(alpha) << 24u);
                 }
             }
-        }
-
-        if (!loadedImage)
-        {
-            // The fallback remains a clean colored circle. The name beside it still identifies the speaker.
         }
 
         return CreateTextureFromPixels(device, textureSize, textureSize, outputPixels);
@@ -459,6 +592,7 @@ namespace
 
     IDirect3DTexture9* CreateTextTexture(IDirect3DDevice9* device, const std::wstring& text)
     {
+        constexpr int supersample = 2;
         HDC measurementDc = CreateCompatibleDC(nullptr);
         if (measurementDc == nullptr)
         {
@@ -466,14 +600,10 @@ namespace
         }
 
         HFONT font = CreateFontW(
-            -17,
-            0,
-            0,
-            0,
+            -g_settings.fontSize * supersample,
+            0, 0, 0,
             FW_SEMIBOLD,
-            FALSE,
-            FALSE,
-            FALSE,
+            FALSE, FALSE, FALSE,
             DEFAULT_CHARSET,
             OUT_DEFAULT_PRECIS,
             CLIP_DEFAULT_PRECIS,
@@ -493,8 +623,8 @@ namespace
         SelectObject(measurementDc, previousFont);
         DeleteDC(measurementDc);
 
-        const int width = std::clamp(static_cast<int>(measured.cx) + 8, 24, 190);
-        constexpr int height = 28;
+        const int width = std::clamp(static_cast<int>(measured.cx) + 12, 32, 560);
+        const int height = std::max(32, (g_settings.fontSize + 11) * supersample);
 
         BITMAPINFO bitmapInfo{};
         bitmapInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
@@ -520,7 +650,7 @@ namespace
         memset(bits, 0, static_cast<std::size_t>(width) * height * 4u);
         SetBkMode(dc, TRANSPARENT);
         SetTextColor(dc, RGB(255, 255, 255));
-        RECT rectangle{2, 0, width - 2, height};
+        RECT rectangle{4, 0, width - 4, height};
         DrawTextW(dc, text.c_str(), -1, &rectangle, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
         GdiFlush();
 
@@ -532,7 +662,7 @@ namespace
             const std::uint8_t green = raw[index * 4u + 1u];
             const std::uint8_t red = raw[index * 4u + 2u];
             const std::uint8_t alpha = std::max({red, green, blue});
-            pixels[index] = D3DCOLOR_ARGB(alpha, 242, 243, 245);
+            pixels[index] = D3DCOLOR_ARGB(alpha, 245, 246, 247);
         }
 
         SelectObject(dc, previousFont);
@@ -541,7 +671,7 @@ namespace
         DeleteObject(bitmap);
         DeleteDC(dc);
 
-        return CreateTextureFromPixels(device, static_cast<UINT>(width), height, pixels);
+        return CreateTextureFromPixels(device, static_cast<UINT>(width), static_cast<UINT>(height), pixels);
     }
 
     IDirect3DTexture9* AvatarTexture(IDirect3DDevice9* device, const Speaker& speaker)
@@ -583,6 +713,10 @@ namespace
     void DrawRectangle(IDirect3DDevice9* device, float left, float top, float right, float bottom, D3DCOLOR color)
     {
         PrepareColorDrawing(device);
+        left -= 0.5f;
+        top -= 0.5f;
+        right -= 0.5f;
+        bottom -= 0.5f;
         const std::array<ColorVertex, 6> vertices = {
             ColorVertex{left,  top,    0.0f, 1.0f, color},
             ColorVertex{right, top,    0.0f, 1.0f, color},
@@ -597,7 +731,9 @@ namespace
 
     void DrawCircle(IDirect3DDevice9* device, float centerX, float centerY, float radius, D3DCOLOR color)
     {
-        constexpr int segments = 24;
+        centerX -= 0.5f;
+        centerY -= 0.5f;
+        constexpr int segments = 48;
         std::array<ColorVertex, segments + 2> vertices{};
         vertices[0] = ColorVertex{centerX, centerY, 0.0f, 1.0f, color};
 
@@ -640,19 +776,22 @@ namespace
         float top,
         float width,
         float height,
-        std::uint8_t opacity = 255)
+        std::uint8_t opacity = 255,
+        float uMax = 1.0f)
     {
         if (texture == nullptr)
         {
             return;
         }
 
+        left -= 0.5f;
+        top -= 0.5f;
         const D3DCOLOR tint = D3DCOLOR_ARGB(opacity, 255, 255, 255);
         const std::array<TextureVertex, 4> vertices = {
             TextureVertex{left,         top,          0.0f, 1.0f, tint, 0.0f, 0.0f},
-            TextureVertex{left + width, top,          0.0f, 1.0f, tint, 1.0f, 0.0f},
+            TextureVertex{left + width, top,          0.0f, 1.0f, tint, uMax, 0.0f},
             TextureVertex{left,         top + height, 0.0f, 1.0f, tint, 0.0f, 1.0f},
-            TextureVertex{left + width, top + height, 0.0f, 1.0f, tint, 1.0f, 1.0f}
+            TextureVertex{left + width, top + height, 0.0f, 1.0f, tint, uMax, 1.0f}
         };
 
         device->SetTexture(0, texture);
@@ -677,7 +816,7 @@ namespace
         }
 
         RefreshSpeakers();
-        if (g_speakers.empty())
+        if (g_speakers.empty() || (!g_settings.showAvatars && !g_settings.showNames))
         {
             return;
         }
@@ -707,40 +846,70 @@ namespace
         device->SetRenderState(D3DRS_LIGHTING, FALSE);
         device->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
 
-        constexpr float cardWidth = 218.0f;
-        constexpr float cardHeight = 44.0f;
-        constexpr float cardGap = 6.0f;
-        constexpr float rightMargin = 18.0f;
-        constexpr float topMargin = 34.0f;
-        constexpr float avatarSize = 36.0f;
-        const D3DCOLOR shadow = D3DCOLOR_ARGB(70, 0, 0, 0);
-        const D3DCOLOR background = D3DCOLOR_ARGB(178, 25, 27, 32);
-        const D3DCOLOR edge = D3DCOLOR_ARGB(100, 77, 80, 88);
+        const float scale = g_settings.scale;
+        const float padding = 5.0f * scale;
+        const float avatarSize = g_settings.showAvatars ? static_cast<float>(g_settings.avatarSize) * scale : 0.0f;
+        const float fontHeight = static_cast<float>(g_settings.fontSize + 10) * scale;
+        const float cardWidth = g_settings.showNames
+            ? static_cast<float>(g_settings.cardWidth) * scale
+            : avatarSize + padding * 2.0f;
+        const float cardHeight = std::max(
+            g_settings.showAvatars ? avatarSize + padding * 2.0f : 0.0f,
+            g_settings.showNames ? fontHeight + padding * 2.0f : 0.0f);
+        const float cardGap = 6.0f * scale;
+        const float radius = std::min(9.0f * scale, cardHeight * 0.25f);
+        const bool leftSide = g_settings.corner == OverlayCorner::TopLeft || g_settings.corner == OverlayCorner::BottomLeft;
+        const bool bottomSide = g_settings.corner == OverlayCorner::BottomLeft || g_settings.corner == OverlayCorner::BottomRight;
 
-        const float cardX = static_cast<float>(viewport.X + viewport.Width) - cardWidth - rightMargin;
-        float cardY = static_cast<float>(viewport.Y) + topMargin;
+        const std::uint8_t backgroundAlpha = static_cast<std::uint8_t>(std::clamp(g_settings.backgroundOpacity * 255 / 100, 0, 255));
+        const D3DCOLOR shadow = D3DCOLOR_ARGB(static_cast<std::uint8_t>(backgroundAlpha * 0.42f), 0, 0, 0);
+        const D3DCOLOR background = D3DCOLOR_ARGB(backgroundAlpha, 25, 27, 32);
+        const D3DCOLOR edge = D3DCOLOR_ARGB(static_cast<std::uint8_t>(backgroundAlpha * 0.48f), 86, 90, 99);
+
+        const float cardX = leftSide
+            ? static_cast<float>(viewport.X + g_settings.horizontalOffset)
+            : static_cast<float>(viewport.X + viewport.Width) - cardWidth - static_cast<float>(g_settings.horizontalOffset);
+        float cardY = bottomSide
+            ? static_cast<float>(viewport.Y + viewport.Height) - cardHeight - static_cast<float>(g_settings.verticalOffset)
+            : static_cast<float>(viewport.Y + g_settings.verticalOffset);
 
         for (const Speaker& speaker : g_speakers)
         {
-            DrawRoundedRectangle(device, cardX + 2.0f, cardY + 3.0f, cardX + cardWidth + 2.0f, cardY + cardHeight + 3.0f, 8.0f, shadow);
-            DrawRoundedRectangle(device, cardX, cardY, cardX + cardWidth, cardY + cardHeight, 8.0f, edge);
-            DrawRoundedRectangle(device, cardX + 1.0f, cardY + 1.0f, cardX + cardWidth - 1.0f, cardY + cardHeight - 1.0f, 7.0f, background);
-
-            IDirect3DTexture9* avatar = AvatarTexture(device, speaker);
-            DrawTexture(device, avatar, cardX + 5.0f, cardY + 4.0f, avatarSize, avatarSize);
-
-            IDirect3DTexture9* name = NameTexture(device, speaker.name);
-            if (name != nullptr)
+            if (backgroundAlpha > 0)
             {
-                D3DSURFACE_DESC description{};
-                if (SUCCEEDED(name->GetLevelDesc(0, &description)))
+                DrawRoundedRectangle(device, cardX + 2.0f, cardY + 3.0f, cardX + cardWidth + 2.0f, cardY + cardHeight + 3.0f, radius, shadow);
+                DrawRoundedRectangle(device, cardX, cardY, cardX + cardWidth, cardY + cardHeight, radius, edge);
+                DrawRoundedRectangle(device, cardX + 1.0f, cardY + 1.0f, cardX + cardWidth - 1.0f, cardY + cardHeight - 1.0f, std::max(1.0f, radius - 1.0f), background);
+            }
+
+            float contentX = cardX + padding;
+            if (g_settings.showAvatars)
+            {
+                IDirect3DTexture9* avatar = AvatarTexture(device, speaker);
+                DrawTexture(device, avatar, contentX, cardY + (cardHeight - avatarSize) * 0.5f, avatarSize, avatarSize);
+                contentX += avatarSize + 8.0f * scale;
+            }
+
+            if (g_settings.showNames)
+            {
+                IDirect3DTexture9* name = NameTexture(device, speaker.name);
+                if (name != nullptr)
                 {
-                    const float textWidth = std::min(static_cast<float>(description.Width), cardWidth - 53.0f);
-                    DrawTexture(device, name, cardX + 48.0f, cardY + 8.0f, textWidth, static_cast<float>(description.Height));
+                    D3DSURFACE_DESC description{};
+                    if (SUCCEEDED(name->GetLevelDesc(0, &description)))
+                    {
+                        constexpr float supersample = 2.0f;
+                        const float naturalWidth = static_cast<float>(description.Width) / supersample * scale;
+                        const float naturalHeight = static_cast<float>(description.Height) / supersample * scale;
+                        const float availableWidth = std::max(1.0f, cardX + cardWidth - padding - contentX);
+                        const float textWidth = std::min(naturalWidth, availableWidth);
+                        const float uMax = naturalWidth > 0.0f ? std::clamp(textWidth / naturalWidth, 0.0f, 1.0f) : 1.0f;
+                        DrawTexture(device, name, contentX, cardY + (cardHeight - naturalHeight) * 0.5f, textWidth, naturalHeight, 255, uMax);
+                    }
                 }
             }
 
-            cardY += cardHeight + cardGap;
+            cardY += bottomSide ? -(cardHeight + cardGap) : (cardHeight + cardGap);
         }
 
         device->SetTexture(0, nullptr);

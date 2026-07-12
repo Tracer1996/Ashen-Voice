@@ -1,5 +1,6 @@
 using Microsoft.Win32;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Net.Http;
 using System.Security.Cryptography;
@@ -18,6 +19,7 @@ public partial class MainWindow : Window
     private readonly string _settingsPath;
     private readonly string _tokenPath;
     private readonly string _speakerStatePath;
+    private readonly string _overlaySettingsPath;
     private readonly string _avatarDirectory;
     private readonly HttpClient _httpClient = new();
     private readonly Dictionary<string, DiscordVoiceMember> _voiceMembers = new(StringComparer.Ordinal);
@@ -37,6 +39,7 @@ public partial class MainWindow : Window
     private bool _discordConnecting;
     private int? _detectedWowProcessId;
     private int? _overlayProcessId;
+    private bool _loadingSettings;
 
     public MainWindow()
     {
@@ -48,12 +51,19 @@ public partial class MainWindow : Window
         _settingsPath = Path.Combine(_settingsDirectory, "settings.json");
         _tokenPath = Path.Combine(_settingsDirectory, "discord-oauth.bin");
         _speakerStatePath = Path.Combine(_settingsDirectory, "speakers.tsv");
+        _overlaySettingsPath = Path.Combine(_settingsDirectory, "overlay-settings.ini");
         _avatarDirectory = Path.Combine(_settingsDirectory, "avatars");
 
         Directory.CreateDirectory(_settingsDirectory);
         Directory.CreateDirectory(_avatarDirectory);
         ClearSpeakerState();
         LoadSettings();
+        RemoveLegacyStartupRegistration();
+        if (_settings.StartWithWindows)
+        {
+            TrySetStartupRegistration(true, out _);
+        }
+        WriteOverlaySettings();
         ConfigureTrayIcon();
 
         _processTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
@@ -63,10 +73,16 @@ public partial class MainWindow : Window
         Loaded += async (_, _) =>
         {
             AddLog("Ashen Voice started.");
-            AddLog("Phase 3.1 uses the Discord desktop app directly. No bot, bridge, server ID, or channel ID is required.");
+            AddLog("Ready.");
             CheckForWow(forceLog: true);
             UpdateControls();
             await TryAutoConnectDiscordAsync();
+
+            if (Environment.GetCommandLineArgs().Any(argument =>
+                    string.Equals(argument, "--minimized", StringComparison.OrdinalIgnoreCase)))
+            {
+                Hide();
+            }
         };
     }
 
@@ -109,9 +125,18 @@ public partial class MainWindow : Window
             _settings.ProcessNames = new List<string> { "Wow", "WoW", "OctoWoW" };
         }
 
-        MinimizeToTrayCheckBox.IsChecked = _settings.MinimizeToTray;
-        StartWithWindowsCheckBox.IsChecked = _settings.StartWithWindows;
-        ProcessNamesTextBox.Text = string.Join(", ", _settings.ProcessNames);
+        _loadingSettings = true;
+        try
+        {
+            MinimizeToTrayCheckBox.IsChecked = _settings.MinimizeToTray;
+            StartWithWindowsCheckBox.IsChecked = _settings.StartWithWindows;
+            ProcessNamesTextBox.Text = string.Join(", ", _settings.ProcessNames);
+            ApplyOverlaySettingsToUi();
+        }
+        finally
+        {
+            _loadingSettings = false;
+        }
     }
 
     private void SaveSettings()
@@ -124,16 +149,182 @@ public partial class MainWindow : Window
                 new JsonSerializerOptions { WriteIndented = true }));
     }
 
+    private void ApplyOverlaySettingsToUi()
+    {
+        PositionComboBox.SelectedIndex = _settings.OverlayPosition switch
+        {
+            "TopLeft" => 1,
+            "BottomRight" => 2,
+            "BottomLeft" => 3,
+            _ => 0
+        };
+        HorizontalOffsetTextBox.Text = _settings.HorizontalOffset.ToString(CultureInfo.InvariantCulture);
+        VerticalOffsetTextBox.Text = _settings.VerticalOffset.ToString(CultureInfo.InvariantCulture);
+        OverlayScaleSlider.Value = _settings.OverlayScale;
+        CardWidthSlider.Value = _settings.CardWidth;
+        AvatarSizeSlider.Value = _settings.AvatarSize;
+        FontSizeSlider.Value = _settings.FontSize;
+        BackgroundOpacitySlider.Value = _settings.BackgroundOpacity;
+        RingThicknessSlider.Value = _settings.RingThickness;
+        MaximumSpeakersSlider.Value = _settings.MaximumSpeakers;
+        HideDelaySlider.Value = _settings.SpeakerHideDelayMs / 1000.0;
+        ShowAvatarCheckBox.IsChecked = _settings.ShowAvatars;
+        ShowNameCheckBox.IsChecked = _settings.ShowNames;
+        UpdateOverlaySettingLabels();
+    }
+
+    private void OverlaySettingChanged(object sender, RoutedEventArgs e)
+    {
+        SaveOverlaySettingsFromUi();
+    }
+
+    private void OverlayNumberTextBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        SaveOverlaySettingsFromUi();
+    }
+
+    private void SaveOverlaySettingsFromUi()
+    {
+        if (!IsLoaded || _loadingSettings)
+        {
+            return;
+        }
+
+        if (PositionComboBox.SelectedItem is System.Windows.Controls.ComboBoxItem selectedPosition &&
+            selectedPosition.Tag is string position)
+        {
+            _settings.OverlayPosition = position;
+        }
+
+        _settings.HorizontalOffset = ParseClampedInteger(HorizontalOffsetTextBox.Text, _settings.HorizontalOffset, 0, 1000);
+        _settings.VerticalOffset = ParseClampedInteger(VerticalOffsetTextBox.Text, _settings.VerticalOffset, 0, 1000);
+        _settings.OverlayScale = Math.Clamp(OverlayScaleSlider.Value, 0.75, 1.50);
+        _settings.CardWidth = Math.Clamp((int)Math.Round(CardWidthSlider.Value), 150, 300);
+        _settings.AvatarSize = Math.Clamp((int)Math.Round(AvatarSizeSlider.Value), 24, 52);
+        _settings.FontSize = Math.Clamp((int)Math.Round(FontSizeSlider.Value), 12, 22);
+        _settings.BackgroundOpacity = Math.Clamp((int)Math.Round(BackgroundOpacitySlider.Value), 0, 100);
+        _settings.RingThickness = Math.Clamp((int)Math.Round(RingThicknessSlider.Value), 1, 5);
+        _settings.MaximumSpeakers = Math.Clamp((int)Math.Round(MaximumSpeakersSlider.Value), 1, 10);
+        _settings.SpeakerHideDelayMs = Math.Clamp((int)Math.Round(HideDelaySlider.Value * 1000.0), 200, 3000);
+        _settings.ShowAvatars = ShowAvatarCheckBox.IsChecked == true;
+        _settings.ShowNames = ShowNameCheckBox.IsChecked == true;
+
+        if (!_settings.ShowAvatars && !_settings.ShowNames)
+        {
+            _settings.ShowNames = true;
+            _loadingSettings = true;
+            ShowNameCheckBox.IsChecked = true;
+            _loadingSettings = false;
+        }
+
+        HorizontalOffsetTextBox.Text = _settings.HorizontalOffset.ToString(CultureInfo.InvariantCulture);
+        VerticalOffsetTextBox.Text = _settings.VerticalOffset.ToString(CultureInfo.InvariantCulture);
+        UpdateOverlaySettingLabels();
+        SaveSettings();
+        WriteOverlaySettings();
+        WriteSpeakerState();
+    }
+
+    private static int ParseClampedInteger(string value, int fallback, int minimum, int maximum)
+    {
+        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed)
+            ? Math.Clamp(parsed, minimum, maximum)
+            : fallback;
+    }
+
+    private void UpdateOverlaySettingLabels()
+    {
+        OverlayScaleValueText.Text = $"{Math.Round(_settings.OverlayScale * 100.0):0}%";
+        CardWidthValueText.Text = $"{_settings.CardWidth} px";
+        AvatarSizeValueText.Text = $"{_settings.AvatarSize} px";
+        FontSizeValueText.Text = $"{_settings.FontSize} px";
+        BackgroundOpacityValueText.Text = $"{_settings.BackgroundOpacity}%";
+        RingThicknessValueText.Text = $"{_settings.RingThickness} px";
+        MaximumSpeakersValueText.Text = _settings.MaximumSpeakers.ToString(CultureInfo.InvariantCulture);
+        HideDelayValueText.Text = $"{_settings.SpeakerHideDelayMs / 1000.0:0.0} sec";
+    }
+
+    private void ResetOverlaySettingsButton_Click(object sender, RoutedEventArgs e)
+    {
+        var defaults = new AppSettings();
+        _settings.OverlayPosition = defaults.OverlayPosition;
+        _settings.HorizontalOffset = defaults.HorizontalOffset;
+        _settings.VerticalOffset = defaults.VerticalOffset;
+        _settings.OverlayScale = defaults.OverlayScale;
+        _settings.CardWidth = defaults.CardWidth;
+        _settings.AvatarSize = defaults.AvatarSize;
+        _settings.FontSize = defaults.FontSize;
+        _settings.BackgroundOpacity = defaults.BackgroundOpacity;
+        _settings.RingThickness = defaults.RingThickness;
+        _settings.MaximumSpeakers = defaults.MaximumSpeakers;
+        _settings.SpeakerHideDelayMs = defaults.SpeakerHideDelayMs;
+        _settings.ShowAvatars = defaults.ShowAvatars;
+        _settings.ShowNames = defaults.ShowNames;
+
+        _loadingSettings = true;
+        ApplyOverlaySettingsToUi();
+        _loadingSettings = false;
+        SaveSettings();
+        WriteOverlaySettings();
+        WriteSpeakerState();
+        AddLog("Overlay settings reset.");
+    }
+
+    private void WriteOverlaySettings()
+    {
+        try
+        {
+            string[] lines =
+            {
+                $"Position={_settings.OverlayPosition}",
+                $"HorizontalOffset={_settings.HorizontalOffset}",
+                $"VerticalOffset={_settings.VerticalOffset}",
+                $"Scale={_settings.OverlayScale.ToString("0.00", CultureInfo.InvariantCulture)}",
+                $"CardWidth={_settings.CardWidth}",
+                $"AvatarSize={_settings.AvatarSize}",
+                $"FontSize={_settings.FontSize}",
+                $"BackgroundOpacity={_settings.BackgroundOpacity}",
+                $"RingThickness={_settings.RingThickness}",
+                $"MaximumSpeakers={_settings.MaximumSpeakers}",
+                $"ShowAvatars={(_settings.ShowAvatars ? 1 : 0)}",
+                $"ShowNames={(_settings.ShowNames ? 1 : 0)}"
+            };
+
+            string temporary = _overlaySettingsPath + ".tmp";
+            File.WriteAllLines(temporary, lines, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            File.Move(temporary, _overlaySettingsPath, overwrite: true);
+        }
+        catch (Exception exception)
+        {
+            AddLog($"Overlay settings could not be saved: {exception.Message}");
+        }
+    }
+
     private void SettingChanged(object sender, RoutedEventArgs e)
     {
-        if (!IsLoaded)
+        if (!IsLoaded || _loadingSettings)
         {
             return;
         }
 
         _settings.MinimizeToTray = MinimizeToTrayCheckBox.IsChecked == true;
-        _settings.StartWithWindows = StartWithWindowsCheckBox.IsChecked == true;
-        SetStartupRegistration(_settings.StartWithWindows);
+        bool requestedStartup = StartWithWindowsCheckBox.IsChecked == true;
+        if (requestedStartup != _settings.StartWithWindows)
+        {
+            if (!TrySetStartupRegistration(requestedStartup, out string error))
+            {
+                _loadingSettings = true;
+                StartWithWindowsCheckBox.IsChecked = _settings.StartWithWindows;
+                _loadingSettings = false;
+                AddLog($"Startup setting failed: {error}");
+                System.Windows.MessageBox.Show(error, "Ashen Voice", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            _settings.StartWithWindows = requestedStartup;
+            AddLog(requestedStartup ? "Start with Windows enabled." : "Start with Windows disabled.");
+        }
+
         SaveSettings();
     }
 
@@ -158,24 +349,90 @@ public partial class MainWindow : Window
         CheckForWow(forceLog: true);
     }
 
-    private static void SetStartupRegistration(bool enabled)
+    private static void RemoveLegacyStartupRegistration()
     {
-        using var key = Registry.CurrentUser.OpenSubKey(
-            @"Software\Microsoft\Windows\CurrentVersion\Run",
-            writable: true);
-
-        if (key is null)
+        try
         {
-            return;
+            using RegistryKey? key = Registry.CurrentUser.OpenSubKey(
+                @"Software\Microsoft\Windows\CurrentVersion\Run",
+                writable: true);
+            key?.DeleteValue("AshenVoice", throwOnMissingValue: false);
         }
-
-        if (enabled)
+        catch
         {
-            key.SetValue("AshenVoice", $"\"{Environment.ProcessPath}\" --minimized");
         }
-        else
+    }
+
+    private static bool TrySetStartupRegistration(bool enabled, out string error)
+    {
+        error = string.Empty;
+        try
         {
-            key.DeleteValue("AshenVoice", throwOnMissingValue: false);
+            string? executablePath = Environment.ProcessPath;
+            if (string.IsNullOrWhiteSpace(executablePath))
+            {
+                error = "Ashen Voice could not find its executable path.";
+                return false;
+            }
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "schtasks.exe",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+
+            if (enabled)
+            {
+                startInfo.ArgumentList.Add("/Create");
+                startInfo.ArgumentList.Add("/TN");
+                startInfo.ArgumentList.Add("Ashen Voice");
+                startInfo.ArgumentList.Add("/TR");
+                startInfo.ArgumentList.Add($"\"{executablePath}\" --minimized");
+                startInfo.ArgumentList.Add("/SC");
+                startInfo.ArgumentList.Add("ONLOGON");
+                startInfo.ArgumentList.Add("/RL");
+                startInfo.ArgumentList.Add("HIGHEST");
+                startInfo.ArgumentList.Add("/F");
+            }
+            else
+            {
+                startInfo.ArgumentList.Add("/Delete");
+                startInfo.ArgumentList.Add("/TN");
+                startInfo.ArgumentList.Add("Ashen Voice");
+                startInfo.ArgumentList.Add("/F");
+            }
+
+            using Process? process = Process.Start(startInfo);
+            if (process is null)
+            {
+                error = "Windows could not update the startup task.";
+                return false;
+            }
+
+            process.WaitForExit();
+            if (process.ExitCode != 0)
+            {
+                error = process.StandardError.ReadToEnd().Trim();
+                if (string.IsNullOrWhiteSpace(error))
+                {
+                    error = process.StandardOutput.ReadToEnd().Trim();
+                }
+                if (string.IsNullOrWhiteSpace(error))
+                {
+                    error = $"Windows returned startup task error {process.ExitCode}.";
+                }
+                return false;
+            }
+
+            return true;
+        }
+        catch (Exception exception)
+        {
+            error = exception.Message;
+            return false;
         }
     }
 
@@ -311,11 +568,11 @@ public partial class MainWindow : Window
         if (!DiscordBuildConfig.IsConfigured)
         {
             System.Windows.MessageBox.Show(
-                "This installer was built without a Discord Application ID. Add the DISCORD_CLIENT_ID repository variable and rebuild Phase 3.1.",
+                "Discord Application ID is missing. Add DISCORD_CLIENT_ID in GitHub and rebuild.",
                 "Discord setup required",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
-            AddLog("Discord connection is unavailable because DISCORD_CLIENT_ID was not configured during the build.");
+            AddLog("Discord Application ID is missing from the build.");
             return;
         }
 
@@ -448,7 +705,7 @@ public partial class MainWindow : Window
         if (channel is null)
         {
             DiscordVoiceText.Text = "Not currently in a Discord voice channel";
-            AddLog("Discord is connected. Join any voice channel and Ashen Voice will follow it automatically.");
+            AddLog("Join a Discord voice channel.");
             return;
         }
 
@@ -506,7 +763,7 @@ public partial class MainWindow : Window
 
     private async Task RemoveSpeakerAfterDelayAsync(string userId, int generation)
     {
-        await Task.Delay(500);
+        await Task.Delay(_settings.SpeakerHideDelayMs);
         await Dispatcher.InvokeAsync(() =>
         {
             if (_speakerGenerations.TryGetValue(userId, out int latest) && latest == generation)
@@ -532,7 +789,7 @@ public partial class MainWindow : Window
         }
 
         string safeHash = string.Concat(member.AvatarHash.Where(char.IsLetterOrDigit));
-        string path = Path.Combine(_avatarDirectory, $"{member.UserId}-{safeHash}.png");
+        string path = Path.Combine(_avatarDirectory, $"{member.UserId}-{safeHash}-128.png");
         if (File.Exists(path))
         {
             return path;
@@ -540,7 +797,7 @@ public partial class MainWindow : Window
 
         try
         {
-            string url = $"https://cdn.discordapp.com/avatars/{member.UserId}/{member.AvatarHash}.png?size=64";
+            string url = $"https://cdn.discordapp.com/avatars/{member.UserId}/{member.AvatarHash}.png?size=128";
             byte[] bytes = await _httpClient.GetByteArrayAsync(url);
             await File.WriteAllBytesAsync(path, bytes);
             return path;
@@ -558,7 +815,7 @@ public partial class MainWindow : Window
         {
             IEnumerable<string> lines = _activeSpeakers.Values
                 .OrderBy(speaker => speaker.StartedAt)
-                .Take(5)
+                .Take(_settings.MaximumSpeakers)
                 .Select(speaker => $"{CleanSpeakerField(speaker.DisplayName)}\t{CleanSpeakerField(speaker.AvatarPath)}");
 
             string temporary = _speakerStatePath + ".tmp";
@@ -625,7 +882,7 @@ public partial class MainWindow : Window
             ? System.Windows.Media.Brushes.OrangeRed
             : System.Windows.Media.Brushes.LightGray;
         DiscordAccountText.Text = "Not connected";
-        DiscordVoiceText.Text = "Active voice channel will be detected automatically";
+        DiscordVoiceText.Text = "Join a voice channel.";
     }
 
     private void SaveProtectedToken(DiscordOAuthToken token)
@@ -731,7 +988,7 @@ public partial class MainWindow : Window
 
         _overlayStarting = true;
         UpdateControls();
-        AddLog($"Loading the compact DirectX 9 overlay into PID {wowProcess.ProcessId}...");
+        AddLog($"Loading overlay into PID {wowProcess.ProcessId}...");
 
         try
         {
@@ -854,7 +1111,7 @@ public partial class MainWindow : Window
         if (!_overlayActive)
         {
             System.Windows.MessageBox.Show(
-                "Start the overlay first, then run the compact preview.",
+                "Start the overlay first, then click Preview Overlay.",
                 "Ashen Voice",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
@@ -864,7 +1121,7 @@ public partial class MainWindow : Window
         if (_discordConnected || _discordConnecting)
         {
             System.Windows.MessageBox.Show(
-                "Disconnect Discord before using the fake preview so live speaker data is not overwritten.",
+                "Disconnect Discord before previewing the overlay.",
                 "Ashen Voice",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
@@ -875,12 +1132,12 @@ public partial class MainWindow : Window
             _speakerStatePath,
             $"Methl\t{Environment.NewLine}Danari\t{Environment.NewLine}Poetry\t",
             Encoding.UTF8);
-        AddLog("Compact overlay preview started for eight seconds.");
+        AddLog("Overlay preview started.");
         PreviewOverlayButton.IsEnabled = false;
         await Task.Delay(TimeSpan.FromSeconds(8));
         ClearSpeakerState();
         PreviewOverlayButton.IsEnabled = true;
-        AddLog("Compact overlay preview finished.");
+        AddLog("Overlay preview finished.");
     }
 
     private static async Task<bool> WaitForNamedEventAsync(string eventName, TimeSpan timeout)
@@ -1064,4 +1321,30 @@ public sealed class AppSettings
         "WoW",
         "OctoWoW"
     };
+
+    public string OverlayPosition { get; set; } = "TopRight";
+
+    public int HorizontalOffset { get; set; } = 18;
+
+    public int VerticalOffset { get; set; } = 34;
+
+    public double OverlayScale { get; set; } = 1.0;
+
+    public int CardWidth { get; set; } = 218;
+
+    public int AvatarSize { get; set; } = 36;
+
+    public int FontSize { get; set; } = 17;
+
+    public int BackgroundOpacity { get; set; } = 70;
+
+    public int RingThickness { get; set; } = 3;
+
+    public int MaximumSpeakers { get; set; } = 5;
+
+    public int SpeakerHideDelayMs { get; set; } = 500;
+
+    public bool ShowAvatars { get; set; } = true;
+
+    public bool ShowNames { get; set; } = true;
 }

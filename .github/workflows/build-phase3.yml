@@ -26,7 +26,8 @@ jobs:
           node-version: '22.12.0'
 
       - name: Install Discord companion dependencies
-        run: npm install --omit=dev --prefix companion
+        working-directory: companion
+        run: npm install --omit=dev
 
       - name: Configure Win32 native build
         run: cmake -S native -B native/build -A Win32

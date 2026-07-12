@@ -1,14 +1,11 @@
-# Third-Party Notices
+# Third-party notices
 
-## MinHook
+Ashen Voice uses the following open-source components:
 
-Ashen Voice uses MinHook, the Minimalistic API Hooking Library for x64/x86.
+- MinHook — BSD 2-Clause license
+- discord.js — Apache-2.0 license
+- @discordjs/voice — Apache-2.0 license
+- Node.js runtime — MIT license and bundled third-party notices
+- Microsoft .NET runtime — MIT license
 
-Copyright (C) 2009-2017 Tsuda Kageyu. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
-
-1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
-2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+The packaged npm dependency tree contains additional transitive open-source packages. Their license files remain in the bundled `discord/node_modules` directory.

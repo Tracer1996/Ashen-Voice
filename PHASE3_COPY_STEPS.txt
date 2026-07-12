@@ -1,0 +1,14 @@
+ASHEN VOICE PHASE 3 - COPY AND BUILD
+
+1. Extract this ZIP.
+2. Open GitHub Desktop and select Ashen-Voice.
+3. Click Repository > Show in Explorer.
+4. Copy everything from this extracted folder into the repository folder.
+5. Choose Replace the files in the destination.
+6. In .github/workflows, keep build-phase3.yml and remove old build workflows.
+7. In GitHub Desktop, commit with: Add compact Discord speaker overlay
+8. Click Push origin.
+9. On GitHub, open Actions > Build Ashen Voice Phase 3.
+10. Run the workflow.
+11. Download the Ashen-Voice-Phase3-Installer artifact.
+12. Extract and run AshenVoice-Setup-1.2.0.exe.

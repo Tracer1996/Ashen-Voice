@@ -1,11 +1,21 @@
 #include <windows.h>
 #include <d3d9.h>
+#include <wincodec.h>
 #include <MinHook.h>
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace
 {
@@ -17,7 +27,7 @@ namespace
     HANDLE g_stopEvent = nullptr;
     HANDLE g_readyEvent = nullptr;
 
-    struct Vertex
+    struct ColorVertex
     {
         float x;
         float y;
@@ -26,7 +36,35 @@ namespace
         D3DCOLOR color;
     };
 
-    constexpr DWORD VertexFormat = D3DFVF_XYZRHW | D3DFVF_DIFFUSE;
+    struct TextureVertex
+    {
+        float x;
+        float y;
+        float z;
+        float rhw;
+        D3DCOLOR color;
+        float u;
+        float v;
+    };
+
+    struct Speaker
+    {
+        std::wstring name;
+        std::wstring avatarPath;
+    };
+
+    constexpr DWORD ColorVertexFormat = D3DFVF_XYZRHW | D3DFVF_DIFFUSE;
+    constexpr DWORD TextureVertexFormat = D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1;
+    constexpr std::size_t MaximumSpeakers = 5;
+
+    std::wstring g_statePath;
+    ULONGLONG g_lastStateRead = 0;
+    std::vector<Speaker> g_speakers;
+    IDirect3DDevice9* g_textureDevice = nullptr;
+    IWICImagingFactory* g_wicFactory = nullptr;
+    bool g_wicAttempted = false;
+    std::unordered_map<std::wstring, IDirect3DTexture9*> g_avatarTextures;
+    std::unordered_map<std::wstring, IDirect3DTexture9*> g_textTextures;
 
     std::wstring EventName(const wchar_t* prefix)
     {
@@ -35,16 +73,26 @@ namespace
         return buffer;
     }
 
-    void WriteNativeLog(const wchar_t* message)
+    std::wstring LocalAppDataDirectory()
     {
         wchar_t localAppData[MAX_PATH]{};
         const DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", localAppData, MAX_PATH);
         if (length == 0 || length >= MAX_PATH)
         {
+            return {};
+        }
+
+        return std::wstring(localAppData) + L"\\AshenVoice";
+    }
+
+    void WriteNativeLog(const wchar_t* message)
+    {
+        const std::wstring directory = LocalAppDataDirectory();
+        if (directory.empty())
+        {
             return;
         }
 
-        std::wstring directory = std::wstring(localAppData) + L"\\AshenVoice";
         CreateDirectoryW(directory.c_str(), nullptr);
         const std::wstring filePath = directory + L"\\overlay-native.log";
 
@@ -75,29 +123,11 @@ namespace
             time.wSecond,
             message);
 
-        const int utf8Length = WideCharToMultiByte(
-            CP_UTF8,
-            0,
-            wideLine,
-            -1,
-            nullptr,
-            0,
-            nullptr,
-            nullptr);
-
+        const int utf8Length = WideCharToMultiByte(CP_UTF8, 0, wideLine, -1, nullptr, 0, nullptr, nullptr);
         if (utf8Length > 1)
         {
-            std::string utf8(static_cast<size_t>(utf8Length), '\0');
-            WideCharToMultiByte(
-                CP_UTF8,
-                0,
-                wideLine,
-                -1,
-                utf8.data(),
-                utf8Length,
-                nullptr,
-                nullptr);
-
+            std::string utf8(static_cast<std::size_t>(utf8Length), '\0');
+            WideCharToMultiByte(CP_UTF8, 0, wideLine, -1, utf8.data(), utf8Length, nullptr, nullptr);
             DWORD written = 0;
             WriteFile(file, utf8.data(), static_cast<DWORD>(utf8.size() - 1), &written, nullptr);
         }
@@ -105,117 +135,549 @@ namespace
         CloseHandle(file);
     }
 
-    void DrawRectangle(IDirect3DDevice9* device, float left, float top, float right, float bottom, D3DCOLOR color)
+    std::wstring Utf8ToWide(const std::string& value)
     {
-        const std::array<Vertex, 6> vertices = {
-            Vertex{left,  top,    0.0f, 1.0f, color},
-            Vertex{right, top,    0.0f, 1.0f, color},
-            Vertex{right, bottom, 0.0f, 1.0f, color},
-            Vertex{left,  top,    0.0f, 1.0f, color},
-            Vertex{right, bottom, 0.0f, 1.0f, color},
-            Vertex{left,  bottom, 0.0f, 1.0f, color}
-        };
-
-        device->DrawPrimitiveUP(
-            D3DPT_TRIANGLELIST,
-            2,
-            vertices.data(),
-            sizeof(Vertex));
-    }
-
-    std::array<std::uint8_t, 7> Glyph(char character)
-    {
-        switch (character)
+        if (value.empty())
         {
-        case 'A': return {0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11};
-        case 'B': return {0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E};
-        case 'C': return {0x0E, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0E};
-        case 'D': return {0x1E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1E};
-        case 'E': return {0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x1F};
-        case 'F': return {0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x10};
-        case 'G': return {0x0E, 0x11, 0x10, 0x17, 0x11, 0x11, 0x0F};
-        case 'H': return {0x11, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11};
-        case 'I': return {0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x1F};
-        case 'J': return {0x07, 0x02, 0x02, 0x02, 0x12, 0x12, 0x0C};
-        case 'K': return {0x11, 0x12, 0x14, 0x18, 0x14, 0x12, 0x11};
-        case 'L': return {0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1F};
-        case 'M': return {0x11, 0x1B, 0x15, 0x15, 0x11, 0x11, 0x11};
-        case 'N': return {0x11, 0x19, 0x15, 0x13, 0x11, 0x11, 0x11};
-        case 'O': return {0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E};
-        case 'P': return {0x1E, 0x11, 0x11, 0x1E, 0x10, 0x10, 0x10};
-        case 'Q': return {0x0E, 0x11, 0x11, 0x11, 0x15, 0x12, 0x0D};
-        case 'R': return {0x1E, 0x11, 0x11, 0x1E, 0x14, 0x12, 0x11};
-        case 'S': return {0x0F, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x1E};
-        case 'T': return {0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04};
-        case 'U': return {0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E};
-        case 'V': return {0x11, 0x11, 0x11, 0x11, 0x11, 0x0A, 0x04};
-        case 'W': return {0x11, 0x11, 0x11, 0x15, 0x15, 0x15, 0x0A};
-        case 'X': return {0x11, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x11};
-        case 'Y': return {0x11, 0x11, 0x0A, 0x04, 0x04, 0x04, 0x04};
-        case 'Z': return {0x1F, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1F};
-        case '0': return {0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E};
-        case '1': return {0x04, 0x0C, 0x14, 0x04, 0x04, 0x04, 0x1F};
-        case '2': return {0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F};
-        case '3': return {0x1E, 0x01, 0x01, 0x0E, 0x01, 0x01, 0x1E};
-        case '4': return {0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02};
-        case '5': return {0x1F, 0x10, 0x10, 0x1E, 0x01, 0x01, 0x1E};
-        case '6': return {0x0E, 0x10, 0x10, 0x1E, 0x11, 0x11, 0x0E};
-        case '7': return {0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08};
-        case '8': return {0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E};
-        case '9': return {0x0E, 0x11, 0x11, 0x0F, 0x01, 0x01, 0x0E};
-        case '-': return {0x00, 0x00, 0x00, 0x1F, 0x00, 0x00, 0x00};
-        case ':': return {0x00, 0x04, 0x04, 0x00, 0x04, 0x04, 0x00};
-        case '.': return {0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x0C};
-        default:  return {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+            return {};
         }
+
+        const int required = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()), nullptr, 0);
+        if (required <= 0)
+        {
+            return {};
+        }
+
+        std::wstring result(static_cast<std::size_t>(required), L'\0');
+        MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()), result.data(), required);
+        return result;
     }
 
-    void DrawText(
-        IDirect3DDevice9* device,
-        const std::string& text,
-        float x,
-        float y,
-        float scale,
-        D3DCOLOR color)
+    void RefreshSpeakers()
     {
-        float cursorX = x;
-        const float advance = 6.0f * scale;
-
-        for (char character : text)
+        const ULONGLONG now = GetTickCount64();
+        if (now - g_lastStateRead < 100)
         {
-            if (character >= 'a' && character <= 'z')
+            return;
+        }
+        g_lastStateRead = now;
+
+        if (g_statePath.empty())
+        {
+            const std::wstring directory = LocalAppDataDirectory();
+            if (directory.empty())
             {
-                character = static_cast<char>(character - 'a' + 'A');
+                return;
+            }
+            g_statePath = directory + L"\\speakers.tsv";
+        }
+
+        std::ifstream input(std::filesystem::path(g_statePath), std::ios::binary);
+        if (!input)
+        {
+            g_speakers.clear();
+            return;
+        }
+
+        std::ostringstream buffer;
+        buffer << input.rdbuf();
+        std::istringstream lines(buffer.str());
+
+        std::vector<Speaker> speakers;
+        std::string line;
+        while (speakers.size() < MaximumSpeakers && std::getline(lines, line))
+        {
+            if (!line.empty() && line.back() == '\r')
+            {
+                line.pop_back();
             }
 
-            if (character == ' ')
+            const std::size_t separator = line.find('\t');
+            const std::string nameBytes = separator == std::string::npos ? line : line.substr(0, separator);
+            const std::string pathBytes = separator == std::string::npos ? std::string() : line.substr(separator + 1);
+
+            std::wstring name = Utf8ToWide(nameBytes);
+            if (name.empty())
             {
-                cursorX += advance;
                 continue;
             }
 
-            const auto glyph = Glyph(character);
-            for (int row = 0; row < 7; ++row)
+            if (name.size() > 48)
             {
-                for (int column = 0; column < 5; ++column)
+                name.resize(48);
+            }
+
+            speakers.push_back(Speaker{std::move(name), Utf8ToWide(pathBytes)});
+        }
+
+        g_speakers = std::move(speakers);
+    }
+
+    void ReleaseTextures()
+    {
+        for (auto& entry : g_avatarTextures)
+        {
+            if (entry.second != nullptr)
+            {
+                entry.second->Release();
+            }
+        }
+        g_avatarTextures.clear();
+
+        for (auto& entry : g_textTextures)
+        {
+            if (entry.second != nullptr)
+            {
+                entry.second->Release();
+            }
+        }
+        g_textTextures.clear();
+        g_textureDevice = nullptr;
+    }
+
+    void EnsureDevice(IDirect3DDevice9* device)
+    {
+        if (g_textureDevice != device)
+        {
+            ReleaseTextures();
+            g_textureDevice = device;
+        }
+    }
+
+    bool EnsureWicFactory()
+    {
+        if (g_wicFactory != nullptr)
+        {
+            return true;
+        }
+
+        if (g_wicAttempted)
+        {
+            return false;
+        }
+
+        g_wicAttempted = true;
+        const HRESULT initializeResult = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        if (FAILED(initializeResult) && initializeResult != RPC_E_CHANGED_MODE)
+        {
+            WriteNativeLog(L"COM initialization failed while preparing avatar support.");
+            return false;
+        }
+
+        const HRESULT factoryResult = CoCreateInstance(
+            CLSID_WICImagingFactory,
+            nullptr,
+            CLSCTX_INPROC_SERVER,
+            IID_PPV_ARGS(&g_wicFactory));
+
+        if (FAILED(factoryResult))
+        {
+            WriteNativeLog(L"Windows Imaging Component could not be initialized.");
+            g_wicFactory = nullptr;
+            return false;
+        }
+
+        return true;
+    }
+
+    IDirect3DTexture9* CreateTextureFromPixels(
+        IDirect3DDevice9* device,
+        UINT width,
+        UINT height,
+        const std::vector<std::uint32_t>& pixels)
+    {
+        if (device == nullptr || pixels.size() != static_cast<std::size_t>(width) * height)
+        {
+            return nullptr;
+        }
+
+        IDirect3DTexture9* texture = nullptr;
+        if (FAILED(device->CreateTexture(
+                width,
+                height,
+                1,
+                0,
+                D3DFMT_A8R8G8B8,
+                D3DPOOL_MANAGED,
+                &texture,
+                nullptr)))
+        {
+            return nullptr;
+        }
+
+        D3DLOCKED_RECT locked{};
+        if (FAILED(texture->LockRect(0, &locked, nullptr, 0)))
+        {
+            texture->Release();
+            return nullptr;
+        }
+
+        for (UINT y = 0; y < height; ++y)
+        {
+            auto* destination = reinterpret_cast<std::uint8_t*>(locked.pBits) + static_cast<std::size_t>(y) * locked.Pitch;
+            const auto* source = pixels.data() + static_cast<std::size_t>(y) * width;
+            memcpy(destination, source, static_cast<std::size_t>(width) * sizeof(std::uint32_t));
+        }
+
+        texture->UnlockRect(0);
+        return texture;
+    }
+
+    std::uint32_t HashColor(const std::wstring& value)
+    {
+        std::uint32_t hash = 2166136261u;
+        for (wchar_t character : value)
+        {
+            hash ^= static_cast<std::uint32_t>(character);
+            hash *= 16777619u;
+        }
+
+        const std::uint8_t red = static_cast<std::uint8_t>(90u + (hash & 0x5Fu));
+        const std::uint8_t green = static_cast<std::uint8_t>(75u + ((hash >> 8u) & 0x6Fu));
+        const std::uint8_t blue = static_cast<std::uint8_t>(95u + ((hash >> 16u) & 0x5Fu));
+        return D3DCOLOR_ARGB(255, red, green, blue);
+    }
+
+    IDirect3DTexture9* CreateAvatarTexture(
+        IDirect3DDevice9* device,
+        const std::wstring& name,
+        const std::wstring& avatarPath)
+    {
+        constexpr UINT textureSize = 36;
+        constexpr UINT imageSize = 30;
+        constexpr int imageOffset = 3;
+        constexpr float center = 17.5f;
+        constexpr float outerRadius = 17.5f;
+        constexpr float innerRadius = 15.0f;
+        const std::uint32_t ringColor = D3DCOLOR_ARGB(255, 35, 224, 117);
+        const std::uint32_t fallbackColor = HashColor(name);
+
+        std::vector<std::uint32_t> sourcePixels(static_cast<std::size_t>(imageSize) * imageSize, fallbackColor);
+        bool loadedImage = false;
+
+        if (!avatarPath.empty() && std::filesystem::exists(std::filesystem::path(avatarPath)) && EnsureWicFactory())
+        {
+            IWICBitmapDecoder* decoder = nullptr;
+            IWICBitmapFrameDecode* frame = nullptr;
+            IWICBitmapScaler* scaler = nullptr;
+            IWICFormatConverter* converter = nullptr;
+
+            HRESULT result = g_wicFactory->CreateDecoderFromFilename(
+                avatarPath.c_str(),
+                nullptr,
+                GENERIC_READ,
+                WICDecodeMetadataCacheOnLoad,
+                &decoder);
+
+            if (SUCCEEDED(result))
+            {
+                result = decoder->GetFrame(0, &frame);
+            }
+            if (SUCCEEDED(result))
+            {
+                result = g_wicFactory->CreateBitmapScaler(&scaler);
+            }
+            if (SUCCEEDED(result))
+            {
+                result = scaler->Initialize(frame, imageSize, imageSize, WICBitmapInterpolationModeFant);
+            }
+            if (SUCCEEDED(result))
+            {
+                result = g_wicFactory->CreateFormatConverter(&converter);
+            }
+            if (SUCCEEDED(result))
+            {
+                result = converter->Initialize(
+                    scaler,
+                    GUID_WICPixelFormat32bppBGRA,
+                    WICBitmapDitherTypeNone,
+                    nullptr,
+                    0.0,
+                    WICBitmapPaletteTypeCustom);
+            }
+
+            if (SUCCEEDED(result))
+            {
+                std::vector<std::uint8_t> bytes(static_cast<std::size_t>(imageSize) * imageSize * 4u);
+                result = converter->CopyPixels(
+                    nullptr,
+                    imageSize * 4u,
+                    static_cast<UINT>(bytes.size()),
+                    bytes.data());
+
+                if (SUCCEEDED(result))
                 {
-                    const std::uint8_t mask = static_cast<std::uint8_t>(1u << (4 - column));
-                    if ((glyph[static_cast<size_t>(row)] & mask) != 0)
+                    for (std::size_t index = 0; index < sourcePixels.size(); ++index)
                     {
-                        const float left = cursorX + static_cast<float>(column) * scale;
-                        const float top = y + static_cast<float>(row) * scale;
-                        DrawRectangle(device, left, top, left + scale, top + scale, color);
+                        const std::uint8_t blue = bytes[index * 4u + 0u];
+                        const std::uint8_t green = bytes[index * 4u + 1u];
+                        const std::uint8_t red = bytes[index * 4u + 2u];
+                        const std::uint8_t alpha = bytes[index * 4u + 3u];
+                        sourcePixels[index] = D3DCOLOR_ARGB(alpha, red, green, blue);
                     }
+                    loadedImage = true;
                 }
             }
 
-            cursorX += advance;
+            if (converter != nullptr) converter->Release();
+            if (scaler != nullptr) scaler->Release();
+            if (frame != nullptr) frame->Release();
+            if (decoder != nullptr) decoder->Release();
         }
+
+        std::vector<std::uint32_t> outputPixels(static_cast<std::size_t>(textureSize) * textureSize, 0u);
+        for (UINT y = 0; y < textureSize; ++y)
+        {
+            for (UINT x = 0; x < textureSize; ++x)
+            {
+                const float dx = static_cast<float>(x) - center;
+                const float dy = static_cast<float>(y) - center;
+                const float distance = std::sqrt(dx * dx + dy * dy);
+                const std::size_t outputIndex = static_cast<std::size_t>(y) * textureSize + x;
+
+                if (distance <= outerRadius && distance > innerRadius)
+                {
+                    outputPixels[outputIndex] = ringColor;
+                }
+                else if (distance <= innerRadius)
+                {
+                    const int sourceX = std::clamp(static_cast<int>(x) - imageOffset, 0, static_cast<int>(imageSize) - 1);
+                    const int sourceY = std::clamp(static_cast<int>(y) - imageOffset, 0, static_cast<int>(imageSize) - 1);
+                    const std::size_t sourceIndex = static_cast<std::size_t>(sourceY) * imageSize + static_cast<std::size_t>(sourceX);
+                    outputPixels[outputIndex] = sourcePixels[sourceIndex];
+                }
+            }
+        }
+
+        if (!loadedImage)
+        {
+            // The fallback remains a clean colored circle. The name beside it still identifies the speaker.
+        }
+
+        return CreateTextureFromPixels(device, textureSize, textureSize, outputPixels);
+    }
+
+    IDirect3DTexture9* CreateTextTexture(IDirect3DDevice9* device, const std::wstring& text)
+    {
+        HDC measurementDc = CreateCompatibleDC(nullptr);
+        if (measurementDc == nullptr)
+        {
+            return nullptr;
+        }
+
+        HFONT font = CreateFontW(
+            -17,
+            0,
+            0,
+            0,
+            FW_SEMIBOLD,
+            FALSE,
+            FALSE,
+            FALSE,
+            DEFAULT_CHARSET,
+            OUT_DEFAULT_PRECIS,
+            CLIP_DEFAULT_PRECIS,
+            ANTIALIASED_QUALITY,
+            DEFAULT_PITCH | FF_DONTCARE,
+            L"Segoe UI");
+
+        if (font == nullptr)
+        {
+            DeleteDC(measurementDc);
+            return nullptr;
+        }
+
+        HGDIOBJ previousFont = SelectObject(measurementDc, font);
+        SIZE measured{};
+        GetTextExtentPoint32W(measurementDc, text.c_str(), static_cast<int>(text.size()), &measured);
+        SelectObject(measurementDc, previousFont);
+        DeleteDC(measurementDc);
+
+        const int width = std::clamp(measured.cx + 8, 24, 190);
+        constexpr int height = 28;
+
+        BITMAPINFO bitmapInfo{};
+        bitmapInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+        bitmapInfo.bmiHeader.biWidth = width;
+        bitmapInfo.bmiHeader.biHeight = -height;
+        bitmapInfo.bmiHeader.biPlanes = 1;
+        bitmapInfo.bmiHeader.biBitCount = 32;
+        bitmapInfo.bmiHeader.biCompression = BI_RGB;
+
+        void* bits = nullptr;
+        HBITMAP bitmap = CreateDIBSection(nullptr, &bitmapInfo, DIB_RGB_COLORS, &bits, nullptr, 0);
+        HDC dc = CreateCompatibleDC(nullptr);
+        if (bitmap == nullptr || dc == nullptr || bits == nullptr)
+        {
+            if (bitmap != nullptr) DeleteObject(bitmap);
+            if (dc != nullptr) DeleteDC(dc);
+            DeleteObject(font);
+            return nullptr;
+        }
+
+        HGDIOBJ previousBitmap = SelectObject(dc, bitmap);
+        previousFont = SelectObject(dc, font);
+        memset(bits, 0, static_cast<std::size_t>(width) * height * 4u);
+        SetBkMode(dc, TRANSPARENT);
+        SetTextColor(dc, RGB(255, 255, 255));
+        RECT rectangle{2, 0, width - 2, height};
+        DrawTextW(dc, text.c_str(), -1, &rectangle, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+        GdiFlush();
+
+        std::vector<std::uint32_t> pixels(static_cast<std::size_t>(width) * height, 0u);
+        const auto* raw = static_cast<const std::uint8_t*>(bits);
+        for (std::size_t index = 0; index < pixels.size(); ++index)
+        {
+            const std::uint8_t blue = raw[index * 4u + 0u];
+            const std::uint8_t green = raw[index * 4u + 1u];
+            const std::uint8_t red = raw[index * 4u + 2u];
+            const std::uint8_t alpha = std::max({red, green, blue});
+            pixels[index] = D3DCOLOR_ARGB(alpha, 242, 243, 245);
+        }
+
+        SelectObject(dc, previousFont);
+        SelectObject(dc, previousBitmap);
+        DeleteObject(font);
+        DeleteObject(bitmap);
+        DeleteDC(dc);
+
+        return CreateTextureFromPixels(device, static_cast<UINT>(width), height, pixels);
+    }
+
+    IDirect3DTexture9* AvatarTexture(IDirect3DDevice9* device, const Speaker& speaker)
+    {
+        const std::wstring key = speaker.avatarPath.empty()
+            ? L"fallback:" + speaker.name
+            : speaker.avatarPath;
+
+        const auto existing = g_avatarTextures.find(key);
+        if (existing != g_avatarTextures.end())
+        {
+            return existing->second;
+        }
+
+        IDirect3DTexture9* texture = CreateAvatarTexture(device, speaker.name, speaker.avatarPath);
+        g_avatarTextures.emplace(key, texture);
+        return texture;
+    }
+
+    IDirect3DTexture9* NameTexture(IDirect3DDevice9* device, const std::wstring& name)
+    {
+        const auto existing = g_textTextures.find(name);
+        if (existing != g_textTextures.end())
+        {
+            return existing->second;
+        }
+
+        IDirect3DTexture9* texture = CreateTextTexture(device, name);
+        g_textTextures.emplace(name, texture);
+        return texture;
+    }
+
+    void PrepareColorDrawing(IDirect3DDevice9* device)
+    {
+        device->SetTexture(0, nullptr);
+        device->SetFVF(ColorVertexFormat);
+    }
+
+    void DrawRectangle(IDirect3DDevice9* device, float left, float top, float right, float bottom, D3DCOLOR color)
+    {
+        PrepareColorDrawing(device);
+        const std::array<ColorVertex, 6> vertices = {
+            ColorVertex{left,  top,    0.0f, 1.0f, color},
+            ColorVertex{right, top,    0.0f, 1.0f, color},
+            ColorVertex{right, bottom, 0.0f, 1.0f, color},
+            ColorVertex{left,  top,    0.0f, 1.0f, color},
+            ColorVertex{right, bottom, 0.0f, 1.0f, color},
+            ColorVertex{left,  bottom, 0.0f, 1.0f, color}
+        };
+
+        device->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 2, vertices.data(), sizeof(ColorVertex));
+    }
+
+    void DrawCircle(IDirect3DDevice9* device, float centerX, float centerY, float radius, D3DCOLOR color)
+    {
+        constexpr int segments = 24;
+        std::array<ColorVertex, segments + 2> vertices{};
+        vertices[0] = ColorVertex{centerX, centerY, 0.0f, 1.0f, color};
+
+        for (int index = 0; index <= segments; ++index)
+        {
+            const float angle = static_cast<float>(index) / static_cast<float>(segments) * 6.28318530718f;
+            vertices[static_cast<std::size_t>(index) + 1u] = ColorVertex{
+                centerX + std::cos(angle) * radius,
+                centerY + std::sin(angle) * radius,
+                0.0f,
+                1.0f,
+                color};
+        }
+
+        PrepareColorDrawing(device);
+        device->DrawPrimitiveUP(D3DPT_TRIANGLEFAN, segments, vertices.data(), sizeof(ColorVertex));
+    }
+
+    void DrawRoundedRectangle(
+        IDirect3DDevice9* device,
+        float left,
+        float top,
+        float right,
+        float bottom,
+        float radius,
+        D3DCOLOR color)
+    {
+        DrawRectangle(device, left + radius, top, right - radius, bottom, color);
+        DrawRectangle(device, left, top + radius, right, bottom - radius, color);
+        DrawCircle(device, left + radius, top + radius, radius, color);
+        DrawCircle(device, right - radius, top + radius, radius, color);
+        DrawCircle(device, left + radius, bottom - radius, radius, color);
+        DrawCircle(device, right - radius, bottom - radius, radius, color);
+    }
+
+    void DrawTexture(
+        IDirect3DDevice9* device,
+        IDirect3DTexture9* texture,
+        float left,
+        float top,
+        float width,
+        float height,
+        std::uint8_t opacity = 255)
+    {
+        if (texture == nullptr)
+        {
+            return;
+        }
+
+        const D3DCOLOR tint = D3DCOLOR_ARGB(opacity, 255, 255, 255);
+        const std::array<TextureVertex, 4> vertices = {
+            TextureVertex{left,         top,          0.0f, 1.0f, tint, 0.0f, 0.0f},
+            TextureVertex{left + width, top,          0.0f, 1.0f, tint, 1.0f, 0.0f},
+            TextureVertex{left,         top + height, 0.0f, 1.0f, tint, 0.0f, 1.0f},
+            TextureVertex{left + width, top + height, 0.0f, 1.0f, tint, 1.0f, 1.0f}
+        };
+
+        device->SetTexture(0, texture);
+        device->SetFVF(TextureVertexFormat);
+        device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+        device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+        device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+        device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+        device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+        device->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE);
+        device->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+        device->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+        device->SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+        device->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, vertices.data(), sizeof(TextureVertex));
     }
 
     void DrawOverlay(IDirect3DDevice9* device)
     {
         if (device == nullptr)
+        {
+            return;
+        }
+
+        RefreshSpeakers();
+        if (g_speakers.empty())
         {
             return;
         }
@@ -226,16 +688,16 @@ namespace
             return;
         }
 
+        EnsureDevice(device);
+
         IDirect3DStateBlock9* stateBlock = nullptr;
         if (SUCCEEDED(device->CreateStateBlock(D3DSBT_ALL, &stateBlock)) && stateBlock != nullptr)
         {
             stateBlock->Capture();
         }
 
-        device->SetTexture(0, nullptr);
         device->SetPixelShader(nullptr);
         device->SetVertexShader(nullptr);
-        device->SetFVF(VertexFormat);
         device->SetRenderState(D3DRS_ZENABLE, FALSE);
         device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
         device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
@@ -245,41 +707,43 @@ namespace
         device->SetRenderState(D3DRS_LIGHTING, FALSE);
         device->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
 
-        constexpr float panelWidth = 330.0f;
-        constexpr float panelHeight = 220.0f;
-        const float panelX = static_cast<float>(viewport.X + viewport.Width) - panelWidth - 28.0f;
-        const float panelY = static_cast<float>(viewport.Y) + 36.0f;
+        constexpr float cardWidth = 218.0f;
+        constexpr float cardHeight = 44.0f;
+        constexpr float cardGap = 6.0f;
+        constexpr float rightMargin = 18.0f;
+        constexpr float topMargin = 34.0f;
+        constexpr float avatarSize = 36.0f;
+        const D3DCOLOR shadow = D3DCOLOR_ARGB(70, 0, 0, 0);
+        const D3DCOLOR background = D3DCOLOR_ARGB(178, 25, 27, 32);
+        const D3DCOLOR edge = D3DCOLOR_ARGB(100, 77, 80, 88);
 
-        const D3DCOLOR panel = D3DCOLOR_ARGB(220, 18, 20, 24);
-        const D3DCOLOR panelEdge = D3DCOLOR_ARGB(235, 64, 68, 78);
-        const D3DCOLOR ember = D3DCOLOR_ARGB(255, 240, 113, 50);
-        const D3DCOLOR white = D3DCOLOR_ARGB(255, 242, 242, 242);
-        const D3DCOLOR muted = D3DCOLOR_ARGB(255, 170, 174, 182);
-        const D3DCOLOR green = D3DCOLOR_ARGB(255, 84, 224, 123);
+        const float cardX = static_cast<float>(viewport.X + viewport.Width) - cardWidth - rightMargin;
+        float cardY = static_cast<float>(viewport.Y) + topMargin;
 
-        DrawRectangle(device, panelX - 2.0f, panelY - 2.0f, panelX + panelWidth + 2.0f, panelY + panelHeight + 2.0f, panelEdge);
-        DrawRectangle(device, panelX, panelY, panelX + panelWidth, panelY + panelHeight, panel);
-        DrawRectangle(device, panelX, panelY, panelX + panelWidth, panelY + 5.0f, ember);
-
-        DrawText(device, "ASHEN VOICE", panelX + 18.0f, panelY + 20.0f, 2.0f, ember);
-        DrawText(device, "OVERLAY CONNECTED", panelX + 18.0f, panelY + 45.0f, 1.0f, muted);
-
-        const std::array<const char*, 3> speakers = {
-            "METHL - SPEAKING",
-            "DANARI - SPEAKING",
-            "POETRY - SPEAKING"
-        };
-
-        float speakerY = panelY + 78.0f;
-        for (const char* speaker : speakers)
+        for (const Speaker& speaker : g_speakers)
         {
-            DrawRectangle(device, panelX + 18.0f, speakerY + 2.0f, panelX + 26.0f, speakerY + 10.0f, green);
-            DrawText(device, speaker, panelX + 38.0f, speakerY, 1.4f, white);
-            speakerY += 34.0f;
+            DrawRoundedRectangle(device, cardX + 2.0f, cardY + 3.0f, cardX + cardWidth + 2.0f, cardY + cardHeight + 3.0f, 8.0f, shadow);
+            DrawRoundedRectangle(device, cardX, cardY, cardX + cardWidth, cardY + cardHeight, 8.0f, edge);
+            DrawRoundedRectangle(device, cardX + 1.0f, cardY + 1.0f, cardX + cardWidth - 1.0f, cardY + cardHeight - 1.0f, 7.0f, background);
+
+            IDirect3DTexture9* avatar = AvatarTexture(device, speaker);
+            DrawTexture(device, avatar, cardX + 5.0f, cardY + 4.0f, avatarSize, avatarSize);
+
+            IDirect3DTexture9* name = NameTexture(device, speaker.name);
+            if (name != nullptr)
+            {
+                D3DSURFACE_DESC description{};
+                if (SUCCEEDED(name->GetLevelDesc(0, &description)))
+                {
+                    const float textWidth = std::min(static_cast<float>(description.Width), cardWidth - 53.0f);
+                    DrawTexture(device, name, cardX + 48.0f, cardY + 8.0f, textWidth, static_cast<float>(description.Height));
+                }
+            }
+
+            cardY += cardHeight + cardGap;
         }
 
-        DrawText(device, "PHASE 2 TEST PANEL", panelX + 18.0f, panelY + 196.0f, 1.0f, muted);
-
+        device->SetTexture(0, nullptr);
         if (stateBlock != nullptr)
         {
             stateBlock->Apply();
@@ -421,7 +885,7 @@ namespace
             return false;
         }
 
-        WriteNativeLog(L"DirectX 9 EndScene hook installed.");
+        WriteNativeLog(L"DirectX 9 compact speaker overlay installed.");
         return true;
     }
 
@@ -435,7 +899,13 @@ namespace
         }
 
         MH_Uninitialize();
-        WriteNativeLog(L"DirectX 9 hook removed.");
+        ReleaseTextures();
+        if (g_wicFactory != nullptr)
+        {
+            g_wicFactory->Release();
+            g_wicFactory = nullptr;
+        }
+        WriteNativeLog(L"DirectX 9 compact speaker overlay removed.");
     }
 
     DWORD WINAPI OverlayThread(void* parameter)

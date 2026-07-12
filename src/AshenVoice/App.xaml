@@ -6,8 +6,11 @@
     <Application.Resources>
         <SolidColorBrush x:Key="AshBrush" Color="#FF17191D"/>
         <SolidColorBrush x:Key="PanelBrush" Color="#FF24272D"/>
+        <SolidColorBrush x:Key="InputBrush" Color="#FF15171B"/>
+        <SolidColorBrush x:Key="InputBorderBrush" Color="#FF4B4F58"/>
         <SolidColorBrush x:Key="EmberBrush" Color="#FFF07132"/>
         <SolidColorBrush x:Key="TextBrush" Color="#FFF4F4F4"/>
+
         <Style TargetType="Button">
             <Setter Property="Margin" Value="4"/>
             <Setter Property="Padding" Value="14,8"/>
@@ -15,6 +18,38 @@
             <Setter Property="Foreground" Value="White"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Style.Triggers>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Opacity" Value="0.42"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="{StaticResource InputBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="CaretBrush" Value="{StaticResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource InputBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+
+        <Style TargetType="PasswordBox">
+            <Setter Property="Background" Value="{StaticResource InputBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="CaretBrush" Value="{StaticResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource InputBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+
+        <Style TargetType="Separator">
+            <Setter Property="Background" Value="#FF4B4F58"/>
+            <Setter Property="Height" Value="1"/>
         </Style>
     </Application.Resources>
 </Application>

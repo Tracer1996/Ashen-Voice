@@ -17,6 +17,10 @@ target_compile_options(AshenVoiceOverlay PRIVATE
 
 target_link_libraries(AshenVoiceOverlay PRIVATE
     d3d9
+    windowscodecs
+    ole32
+    gdi32
+    user32
     minhook
 )
 

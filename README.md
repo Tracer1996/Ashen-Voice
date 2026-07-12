@@ -1,57 +1,60 @@
-# Ashen Voice — Phase 2
+# Ashen Voice — Phase 3
 
-Ashen Voice is a Windows desktop application and fullscreen DirectX 9 overlay for 32-bit classic World of Warcraft clients.
+Ashen Voice is a fullscreen Discord speaker overlay for 32-bit DirectX 9 classic World of Warcraft clients, including OctoWoW.
 
-## Phase 2 scope
+## Phase 3 features
 
-This phase adds the first real in-game overlay test while preserving the validated Phase 1 desktop app and installer.
+- Compact Discord-style speaker rows instead of a large permanent panel
+- Only people who are actively speaking are shown
+- Circular Discord avatars with a green speaking ring
+- Discord display names rendered with a clean Segoe UI font
+- Subtle translucent cards in the upper-right corner
+- Up to five simultaneous speakers
+- Real Discord voice activity through a companion bot
+- The companion is bundled with the installer; players do not install Node.js
+- DirectX 9 overlay remains visible in exclusive fullscreen
+- Secure optional bot-token storage using Windows DPAPI
+- Eight-second compact preview for testing without Discord
 
-Included:
+## Privacy behavior
 
-- Windows desktop application built with C# and .NET 8 WPF
-- Normal self-contained Windows installer
-- OctoWoW and WoW process detection
-- 32-bit native injector
-- 32-bit DirectX 9 injected overlay DLL
-- Test panel rendered inside true exclusive fullscreen
-- Safe stop signal and DLL unload
-- Native troubleshooting log
-- Three fake speaking users for visual testing
+The bot joins the selected Discord voice channel muted. It must receive Discord voice packets so that speaking activity can be detected, but Ashen Voice does not play, record, save, transcribe, or upload voice audio. The companion only writes active display names and cached avatar image paths to a local state file.
 
-Not included yet:
+Discord voice receiving is not a documented Discord platform feature, so upstream library changes can require future compatibility updates.
 
-- Discord connection
-- Live speaker detection
-- Discord avatars
-- Overlay positioning and appearance settings
-- Automatic updates
+## Build the installer
 
-## Build with GitHub Actions
+1. Copy this package over the contents of the existing Ashen Voice repository while keeping the hidden `.git` folder.
+2. Commit and push the changes.
+3. Open GitHub **Actions**.
+4. Run **Build Ashen Voice Phase 3**.
+5. Download the **Ashen-Voice-Phase3-Installer** artifact.
+6. Extract it and run `AshenVoice-Setup-1.2.0.exe`.
 
-1. Commit the Phase 2 files to the repository.
-2. Open **Actions** on GitHub.
-3. Run **Build Ashen Voice Phase 2**.
-4. Download the artifact named **Ashen-Voice-Phase2-Installer**.
-5. Extract it and run `AshenVoice-Setup-1.1.0.exe`.
+End users do not need Visual Studio, CMake, .NET, Node.js, or Inno Setup.
 
-End users do not need CMake, Visual Studio, .NET, Node.js, or Inno Setup. GitHub compiles and packages everything.
+## Discord bot setup
 
-## Phase 2 test
+1. Create an application in the Discord Developer Portal.
+2. Open the application's **Bot** page and create/reset the bot token.
+3. Invite the bot to the server with **View Channels** and **Connect** permissions.
+4. Enable Developer Mode in Discord.
+5. Right-click the server and copy the Server ID.
+6. Right-click the voice channel and copy the Channel ID.
+7. Open Ashen Voice and enter the token and both IDs.
+8. Click **Connect Discord**.
+9. Launch OctoWoW and click **Start Overlay**.
 
-1. Install Ashen Voice 1.1.0.
-2. Launch OctoWoW and wait for the app to show **Detected**.
-3. Click **Start Test Overlay**.
-4. Switch back to WoW in true fullscreen.
-5. Look in the upper-right corner for the Ashen Voice test panel.
-6. Alt-tab back and click **Stop Overlay**.
-7. Confirm the panel disappears and WoW continues running normally.
+The bot does not need Administrator permission and does not need permission to send messages.
 
-If the DLL loads but the hook does not become ready, inspect:
+## Phase 3 acceptance test
 
-`%LOCALAPPDATA%\AshenVoice\overlay-native.log`
-
-## Important compatibility notes
-
-- The native overlay and injector are built as Win32/x86 because the classic 1.12 WoW client is 32-bit.
-- Ashen Voice and WoW must run at the same Windows permission level. If WoW is launched as administrator, Ashen Voice must also be launched as administrator.
-- Phase 2 targets the DirectX 9 renderer. Other renderers are not supported in this test build.
+- The installer upgrades the existing Ashen Voice installation.
+- Ashen Voice detects the WoW process.
+- **Start Overlay** loads without displaying a permanent panel.
+- **Preview Compact Style** shows three small rows for eight seconds.
+- **Connect Discord** causes the bot to join the selected voice channel.
+- Speaking users appear with their display name and circular avatar.
+- Rows disappear shortly after speech stops.
+- Alt-tabbing and exclusive fullscreen continue working.
+- Stopping the overlay does not close WoW.

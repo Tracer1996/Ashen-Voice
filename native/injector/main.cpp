@@ -92,7 +92,7 @@ int wmain(int argc, wchar_t** argv)
 
     if (!IsTargetCompatible(process))
     {
-        std::wcerr << L"The selected process is 64-bit. Phase 2 supports the 32-bit classic WoW client.\n";
+        std::wcerr << L"The selected process is 64-bit. Ashen Voice supports the 32-bit classic WoW client.\n";
         CloseHandle(process);
         return 5;
     }

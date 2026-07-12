@@ -8,9 +8,13 @@
     <Nullable>enable</Nullable>
     <AssemblyName>AshenVoice</AssemblyName>
     <RootNamespace>AshenVoice</RootNamespace>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+  </ItemGroup>
 
   <ItemGroup>
     <Content Include="native\**\*.*">

@@ -2,32 +2,40 @@
 
 ## Phase 1 — Complete
 
-- Core Windows desktop application
-- Installer and uninstall support
+- Core WPF application
+- Installer
 - WoW process detection
-- Saved settings
-- System tray support
+- Settings, tray support, and uninstall
 
-## Phase 2 — Current
+## Phase 2 — Complete
 
-- Win32/x86 DirectX 9 overlay DLL
-- Win32/x86 injector
-- Exclusive-fullscreen test panel
-- Start and stop controls in the desktop app
-- Safe unload signal
-- Native diagnostics log
+- 32-bit DirectX 9 overlay DLL
+- Win32 injector
+- Exclusive-fullscreen rendering test
 
-## Phase 3
+## Phase 3 — Current
 
-- Discord companion connection
-- Voice-channel selection
-- Live speaker activity
-- Speaker names and avatars passed into the overlay
+- Compact speaker-only design
+- Circular Discord avatar textures
+- Clean display-name rendering
+- Bundled Discord companion
+- Bot token, server ID, and channel ID setup
+- Live speaking start/stop detection
 
-## Phase 4
+## Phase 4 — Planned
 
-- Position, scale, opacity, layout, themes, and hotkeys
+- Draggable positioning
+- Overlay scale and opacity
+- Left/right layout
+- Avatar-only and minimal modes
+- Maximum speaker setting
+- Theme choices
+- Configurable speaking hold/fade timing
 
-## Phase 5
+## Phase 5 — Planned
 
-- Public releases, signed builds, documentation, and automatic updates
+- Public GitHub release
+- Automatic updates
+- Signing and release documentation
+- Portable distribution
+- Compatibility and troubleshooting guide

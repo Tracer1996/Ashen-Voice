@@ -1,0 +1,20 @@
+# .NET
+**/bin/
+**/obj/
+
+# Native builds
+native/build/
+src/AshenVoice/native/
+
+# Packaging output
+publish/
+release/
+
+# Visual Studio and editors
+.vs/
+*.user
+*.suo
+
+# Windows
+Thumbs.db
+Desktop.ini

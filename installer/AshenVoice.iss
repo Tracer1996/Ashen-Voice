@@ -1,5 +1,5 @@
 #define MyAppName "Ashen Voice"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "Ashen Voice"
 #define MyAppExeName "AshenVoice.exe"
 
@@ -21,9 +21,12 @@ ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 UninstallDisplayIcon={app}\{#MyAppExeName}
 SetupLogging=yes
+CloseApplications=yes
+RestartApplications=no
 
 [Files]
 Source: "..\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\Ashen Voice"; Filename: "{app}\{#MyAppExeName}"

@@ -1,38 +1,57 @@
-# Ashen Voice — Phase 1
+# Ashen Voice — Phase 2
 
-This package contains only the validated Phase 1 scope:
+Ashen Voice is a Windows desktop application and fullscreen DirectX 9 overlay for 32-bit classic World of Warcraft clients.
 
-- Native Windows desktop application built with C# and .NET 8 WPF
-- Normal Windows installer
-- OctoWoW / WoW process detection
-- Start and stop monitoring controls
-- Local activity log
-- Persistent settings
-- Minimize to system tray
-- Optional launch with Windows
-- Normal Windows uninstall support
+## Phase 2 scope
 
-DirectX 9 rendering and Discord integration are intentionally not included in this phase.
+This phase adds the first real in-game overlay test while preserving the validated Phase 1 desktop app and installer.
 
-## Build the installer using GitHub
+Included:
 
-1. Replace the contents of your existing GitHub repository with this package, while keeping the repository's hidden `.git` folder.
-2. Commit and push the files.
-3. Open the repository on GitHub.
-4. Select **Actions**.
-5. Select **Build Ashen Voice Phase 1**.
-6. Click **Run workflow**.
-7. Open the completed run and download the **Ashen-Voice-Phase1-Installer** artifact.
-8. Extract the artifact and run `AshenVoice-Setup-1.0.0.exe`.
+- Windows desktop application built with C# and .NET 8 WPF
+- Normal self-contained Windows installer
+- OctoWoW and WoW process detection
+- 32-bit native injector
+- 32-bit DirectX 9 injected overlay DLL
+- Test panel rendered inside true exclusive fullscreen
+- Safe stop signal and DLL unload
+- Native troubleshooting log
+- Three fake speaking users for visual testing
 
-End users do not need .NET, Visual Studio, CMake, Node.js, or Inno Setup. The installer contains a self-contained application.
+Not included yet:
 
-## Phase 1 acceptance test
+- Discord connection
+- Live speaker detection
+- Discord avatars
+- Overlay positioning and appearance settings
+- Automatic updates
 
-- Installer opens normally.
-- App launches from the desktop or Start Menu.
-- Opening `WoW.exe` changes the WoW status to **Detected** within two seconds.
-- Custom process names can be entered without `.exe`.
-- Settings remain after closing and reopening the app.
-- Minimize-to-tray works.
-- Ashen Voice appears in Windows Installed Apps and uninstalls normally.
+## Build with GitHub Actions
+
+1. Commit the Phase 2 files to the repository.
+2. Open **Actions** on GitHub.
+3. Run **Build Ashen Voice Phase 2**.
+4. Download the artifact named **Ashen-Voice-Phase2-Installer**.
+5. Extract it and run `AshenVoice-Setup-1.1.0.exe`.
+
+End users do not need CMake, Visual Studio, .NET, Node.js, or Inno Setup. GitHub compiles and packages everything.
+
+## Phase 2 test
+
+1. Install Ashen Voice 1.1.0.
+2. Launch OctoWoW and wait for the app to show **Detected**.
+3. Click **Start Test Overlay**.
+4. Switch back to WoW in true fullscreen.
+5. Look in the upper-right corner for the Ashen Voice test panel.
+6. Alt-tab back and click **Stop Overlay**.
+7. Confirm the panel disappears and WoW continues running normally.
+
+If the DLL loads but the hook does not become ready, inspect:
+
+`%LOCALAPPDATA%\AshenVoice\overlay-native.log`
+
+## Important compatibility notes
+
+- The native overlay and injector are built as Win32/x86 because the classic 1.12 WoW client is 32-bit.
+- Ashen Voice and WoW must run at the same Windows permission level. If WoW is launched as administrator, Ashen Voice must also be launched as administrator.
+- Phase 2 targets the DirectX 9 renderer. Other renderers are not supported in this test build.

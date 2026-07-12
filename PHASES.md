@@ -1,16 +1,33 @@
-# Ashen Voice Development Phases
+# Ashen Voice development phases
 
-## Phase 1 — Core Windows application and installer
-Status: ready for Windows build and user validation.
+## Phase 1 — Complete
 
-## Phase 2 — DirectX 9 fullscreen overlay
-Begins only after Phase 1 installation and process detection pass.
+- Core Windows desktop application
+- Installer and uninstall support
+- WoW process detection
+- Saved settings
+- System tray support
 
-## Phase 3 — Discord speaker integration
-Begins after a fake-speaker test renders reliably in exclusive fullscreen.
+## Phase 2 — Current
 
-## Phase 4 — Settings and customization
-Position, scale, opacity, layout, themes, hotkeys, and profiles.
+- Win32/x86 DirectX 9 overlay DLL
+- Win32/x86 injector
+- Exclusive-fullscreen test panel
+- Start and stop controls in the desktop app
+- Safe unload signal
+- Native diagnostics log
 
-## Phase 5 — Public release and automatic updates
-Signed releases, updater, release notes, diagnostics, and support documentation.
+## Phase 3
+
+- Discord companion connection
+- Voice-channel selection
+- Live speaker activity
+- Speaker names and avatars passed into the overlay
+
+## Phase 4
+
+- Position, scale, opacity, layout, themes, and hotkeys
+
+## Phase 5
+
+- Public releases, signed builds, documentation, and automatic updates

@@ -1,25 +1,38 @@
-# Ashen Voice
+# Ashen Voice — Phase 1
 
-**Discord voice activity overlay for OctoWoW and compatible 32-bit DirectX 9 Vanilla WoW clients.**
+This package contains only the validated Phase 1 scope:
 
-Ashen Voice displays active Discord speakers inside true exclusive-fullscreen WoW. The public download is a normal Windows installer and does not require players to install CMake, Visual Studio, Node.js, or use Command Prompt.
+- Native Windows desktop application built with C# and .NET 8 WPF
+- Normal Windows installer
+- OctoWoW / WoW process detection
+- Start and stop monitoring controls
+- Local activity log
+- Persistent settings
+- Minimize to system tray
+- Optional launch with Windows
+- Normal Windows uninstall support
 
-## Player setup
+DirectX 9 rendering and Discord integration are intentionally not included in this phase.
 
-1. Run `AshenVoice-Setup-1.1.0.exe`.
-2. Open **Ashen Voice**.
-3. Enter the Discord bot token, server ID, and voice-channel ID once.
-4. Click **Start Overlay**.
-5. Launch WoW.
+## Build the installer using GitHub
 
-The Discord bot requires only **View Channel** and **Connect** permissions. The bot is used because Discord's public local RPC does not provide third-party applications with live speaking-state events.
+1. Replace the contents of your existing GitHub repository with this package, while keeping the repository's hidden `.git` folder.
+2. Commit and push the files.
+3. Open the repository on GitHub.
+4. Select **Actions**.
+5. Select **Build Ashen Voice Phase 1**.
+6. Click **Run workflow**.
+7. Open the completed run and download the **Ashen-Voice-Phase1-Installer** artifact.
+8. Extract the artifact and run `AshenVoice-Setup-1.0.0.exe`.
 
-## Maintainer build
+End users do not need .NET, Visual Studio, CMake, Node.js, or Inno Setup. The installer contains a self-contained application.
 
-The project includes an automated Windows GitHub Actions workflow. It compiles the Win32 DirectX 9 DLL and injector, packages the Electron application, and produces the distributable installer plus its checksum.
+## Phase 1 acceptance test
 
-See `BUILD_RELEASE.md`.
-
-## Security and distribution
-
-Ashen Voice injects its rendering DLL into the 32-bit WoW process to support exclusive fullscreen. Only distribute it where this overlay method is explicitly permitted. Unsigned builds may trigger Windows SmartScreen or antivirus warnings. A broadly distributed release should be code-signed.
+- Installer opens normally.
+- App launches from the desktop or Start Menu.
+- Opening `WoW.exe` changes the WoW status to **Detected** within two seconds.
+- Custom process names can be entered without `.exe`.
+- Settings remain after closing and reopening the app.
+- Minimize-to-tray works.
+- Ashen Voice appears in Windows Installed Apps and uninstalls normally.

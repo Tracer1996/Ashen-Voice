@@ -466,11 +466,15 @@ internal sealed class DiscordRpcClient : IAsyncDisposable
         string? avatarHash = hasUser ? GetString(user, "avatar") : null;
         avatarHash ??= existing?.AvatarHash;
 
-        bool botFlagPresent = hasUser &&
-                              user.TryGetProperty("bot", out JsonElement botElement) &&
-                              botElement.ValueKind is JsonValueKind.True or JsonValueKind.False;
-        bool isBot = existing?.IsBot == true ||
-                     (botFlagPresent && botElement.ValueKind == JsonValueKind.True);
+        bool isBotFromPayload = false;
+        if (hasUser &&
+            user.TryGetProperty("bot", out JsonElement botElement) &&
+            botElement.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        {
+            isBotFromPayload = botElement.ValueKind == JsonValueKind.True;
+        }
+
+        bool isBot = existing?.IsBot == true || isBotFromPayload;
 
         return new DiscordVoiceMember(userId, displayName, avatarHash, isBot);
     }

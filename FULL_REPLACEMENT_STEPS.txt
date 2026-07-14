@@ -1,16 +1,13 @@
-ASHEN VOICE 1.4.3 - FULL REPOSITORY
+ASHEN VOICE 1.4.4 - FULL REPOSITORY
 
-This ZIP contains the entire project, not a patch.
-
-1. Extract the ZIP.
-2. Open GitHub Desktop.
-3. Select Ashen-Voice.
-4. Click Repository > Show in Explorer.
-5. Delete everything in the repository folder EXCEPT the hidden .git folder.
-6. Copy every file and folder from the extracted AshenVoice folder into the repository folder.
-7. In GitHub Desktop, commit: Replace repository with complete Ashen Voice 1.4.3 project
-8. Push origin.
-9. Open GitHub > Actions.
-10. Run Build Ashen Voice 1.4.3.
-11. Download the Ashen-Voice-1.4.3-Installer artifact.
-12. Extract and run AshenVoice-Setup-1.4.3.exe.
+1. Extract Ashen-Voice-1.4.4-Full-Repository.zip.
+2. Open GitHub Desktop and select Ashen-Voice.
+3. Click Repository > Show in Explorer.
+4. Delete everything in the repository folder except the hidden .git folder.
+5. Copy every file and folder from the extracted AshenVoice folder into the repository folder.
+6. In GitHub Desktop, commit: Replace repository with complete Ashen Voice 1.4.4 project
+7. Push origin.
+8. Open GitHub > Actions.
+9. Run Build Ashen Voice 1.4.4.
+10. Download the Ashen-Voice-1.4.4-Installer artifact.
+11. Extract and run AshenVoice-Setup-1.4.4.exe.

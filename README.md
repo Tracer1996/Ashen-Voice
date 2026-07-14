@@ -1,4 +1,4 @@
-# Ashen Voice 1.4.3
+# Ashen Voice 1.4.4
 
 Fullscreen Discord speaker overlay for classic World of Warcraft clients.
 
@@ -19,9 +19,9 @@ Fullscreen Discord speaker overlay for classic World of Warcraft clients.
 1. Add the full project to the repository root.
 2. Create the GitHub repository variable `DISCORD_CLIENT_ID`.
 3. Open **Actions**.
-4. Run **Build Ashen Voice 1.4.3**.
-5. Download the `Ashen-Voice-1.4.3-Installer` artifact.
-6. Extract and run `AshenVoice-Setup-1.4.3.exe`.
+4. Run **Build Ashen Voice 1.4.4**.
+5. Download the `Ashen-Voice-1.4.4-Installer` artifact.
+6. Extract and run `AshenVoice-Setup-1.4.4.exe`.
 
 ## Discord redirect
 

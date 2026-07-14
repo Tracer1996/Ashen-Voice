@@ -29,12 +29,19 @@ jobs:
           }
 
           $path = "src/AshenVoice/DiscordBuildConfig.cs"
-          $content = Get-Content $path -Raw
-          if (!$content.Contains("__DISCORD_CLIENT_ID__")) {
-            throw "Discord Application ID placeholder was not found in $path."
-          }
+          $content = @"
+namespace AshenVoice;
 
-          $content = $content.Replace("__DISCORD_CLIENT_ID__", $clientId)
+internal static class DiscordBuildConfig
+{
+    public const string ClientId = "$clientId";
+    public const string RedirectUri = "http://127.0.0.1:53682/callback/";
+
+    public static bool IsConfigured =>
+        ClientId.Length is >= 17 and <= 20 && ClientId.All(char.IsDigit);
+}
+"@
+          New-Item -ItemType Directory -Force -Path (Split-Path $path) | Out-Null
           Set-Content -Path $path -Value $content -NoNewline
 
       - name: Configure Win32 native build

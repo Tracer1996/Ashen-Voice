@@ -3,7 +3,8 @@ name: Build Ashen Voice Phase 4.2
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches:
+      - main
 
 jobs:
   build:
@@ -18,29 +19,33 @@ jobs:
       - name: Set up .NET 8
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: "8.0.x"
 
       - name: Configure Discord Application ID
         shell: powershell
         run: |
           $clientId = "${{ vars.DISCORD_CLIENT_ID }}"
+
           if ($clientId -notmatch '^\d{17,20}$') {
             throw "Create a GitHub repository variable named DISCORD_CLIENT_ID containing the Application ID from the Discord Developer Portal."
           }
 
           $path = "src/AshenVoice/DiscordBuildConfig.cs"
+
           $content = @"
-namespace AshenVoice;
+          namespace AshenVoice;
 
-internal static class DiscordBuildConfig
-{
-    public const string ClientId = "$clientId";
-    public const string RedirectUri = "http://127.0.0.1:53682/callback/";
+          internal static class DiscordBuildConfig
+          {
+              public const string ClientId = "$clientId";
+              public const string RedirectUri = "http://127.0.0.1:53682/callback/";
 
-    public static bool IsConfigured =>
-        ClientId.Length is >= 17 and <= 20 && ClientId.All(char.IsDigit);
-}
-"@
+              public static bool IsConfigured =>
+                  ClientId.Length is >= 17 and <= 20 &&
+                  ClientId.All(char.IsDigit);
+          }
+          "@
+
           New-Item -ItemType Directory -Force -Path (Split-Path $path) | Out-Null
           Set-Content -Path $path -Value $content -NoNewline
 
@@ -64,7 +69,7 @@ internal static class DiscordBuildConfig
         run: dotnet build src/AshenVoice/AshenVoice.csproj -c Release --no-restore
 
       - name: Publish self-contained application
-        run: >-
+        run: >
           dotnet publish src/AshenVoice/AshenVoice.csproj
           -c Release
           -r win-x64

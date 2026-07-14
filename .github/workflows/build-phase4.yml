@@ -1,4 +1,4 @@
-name: Build Ashen Voice Phase 4.2
+name: Build Ashen Voice 1.4.3
 
 on:
   workflow_dispatch:
@@ -51,20 +51,14 @@ jobs:
           }
 
           $path = Join-Path $env:ASHEN_PROJECT_DIR "DiscordBuildConfig.cs"
+          $content = Get-Content $path -Raw
 
-          $content = @"
-          namespace AshenVoice;
-
-          internal static class DiscordBuildConfig
-          {
-              public const string ClientId = "$clientId";
-              public const string RedirectUri = "http://127.0.0.1:53682/callback/";
-
-              public static bool IsConfigured =>
-                  ClientId.Length is >= 17 and <= 20 &&
-                  ClientId.All(char.IsDigit);
+          if ($content.Contains("__DISCORD_CLIENT_ID__")) {
+            $content = $content.Replace("__DISCORD_CLIENT_ID__", $clientId)
           }
-          "@
+          else {
+            $content = $content -replace 'public const string ClientId = "[^"]*";', "public const string ClientId = `"$clientId`";"
+          }
 
           Set-Content -Path $path -Value $content -NoNewline
 
@@ -119,7 +113,7 @@ jobs:
 
           foreach ($file in $required) {
             if (!(Test-Path $file)) {
-              throw "Required Phase 4.2 file is missing: $file"
+              throw "Required file is missing: $file"
             }
           }
 
@@ -127,28 +121,28 @@ jobs:
         shell: powershell
         run: choco install innosetup --no-progress -y
 
-      - name: Build Phase 4.2 installer
+      - name: Build installer
         shell: powershell
         run: |
           New-Item -ItemType Directory -Force -Path release | Out-Null
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer\AshenVoice.iss"
 
-          if (!(Test-Path "release\AshenVoice-Setup-1.4.2.exe")) {
-            throw "Phase 4.2 installer was not created."
+          if (!(Test-Path "release\AshenVoice-Setup-1.4.3.exe")) {
+            throw "Ashen Voice installer was not created."
           }
 
       - name: Create checksum
         shell: powershell
         run: |
-          $hash = (Get-FileHash "release\AshenVoice-Setup-1.4.2.exe" -Algorithm SHA256).Hash.ToLower()
-          "$hash AshenVoice-Setup-1.4.2.exe" |
-            Set-Content "release\AshenVoice-Setup-1.4.2.exe.sha256"
+          $hash = (Get-FileHash "release\AshenVoice-Setup-1.4.3.exe" -Algorithm SHA256).Hash.ToLower()
+          "$hash AshenVoice-Setup-1.4.3.exe" |
+            Set-Content "release\AshenVoice-Setup-1.4.3.exe.sha256"
 
-      - name: Upload Phase 4.2 installer
+      - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: Ashen-Voice-Phase4.2-Installer
+          name: Ashen-Voice-1.4.3-Installer
           path: |
-            release/AshenVoice-Setup-1.4.2.exe
-            release/AshenVoice-Setup-1.4.2.exe.sha256
+            release/AshenVoice-Setup-1.4.3.exe
+            release/AshenVoice-Setup-1.4.3.exe.sha256
           if-no-files-found: error

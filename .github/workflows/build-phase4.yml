@@ -21,6 +21,26 @@ jobs:
         with:
           dotnet-version: "8.0.x"
 
+      - name: Locate Ashen Voice project
+        shell: powershell
+        run: |
+          $project = Get-ChildItem -Path . -Recurse -Filter "AshenVoice.csproj" -File |
+            Select-Object -First 1
+
+          if ($null -eq $project) {
+            Write-Host "Repository files:"
+            Get-ChildItem -Path . -Recurse -File | ForEach-Object {
+              Write-Host $_.FullName
+            }
+            throw "AshenVoice.csproj was not found in the checked-out repository."
+          }
+
+          Write-Host "Using project: $($project.FullName)"
+          "ASHEN_PROJECT=$($project.FullName)" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "ASHEN_PROJECT_DIR=$($project.DirectoryName)" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Configure Discord Application ID
         shell: powershell
         run: |
@@ -30,7 +50,7 @@ jobs:
             throw "Create a GitHub repository variable named DISCORD_CLIENT_ID containing the Application ID from the Discord Developer Portal."
           }
 
-          $path = "src/AshenVoice/DiscordBuildConfig.cs"
+          $path = Join-Path $env:ASHEN_PROJECT_DIR "DiscordBuildConfig.cs"
 
           $content = @"
           namespace AshenVoice;
@@ -46,7 +66,6 @@ jobs:
           }
           "@
 
-          New-Item -ItemType Directory -Force -Path (Split-Path $path) | Out-Null
           Set-Content -Path $path -Value $content -NoNewline
 
       - name: Configure Win32 native build
@@ -58,25 +77,29 @@ jobs:
       - name: Stage native files for application build
         shell: powershell
         run: |
-          New-Item -ItemType Directory -Force -Path "src/AshenVoice/native" | Out-Null
-          Copy-Item "native/build/bin/AshenVoiceOverlay.dll" "src/AshenVoice/native/AshenVoiceOverlay.dll" -Force
-          Copy-Item "native/build/bin/AshenVoiceInjector.exe" "src/AshenVoice/native/AshenVoiceInjector.exe" -Force
+          $nativeTarget = Join-Path $env:ASHEN_PROJECT_DIR "native"
+          New-Item -ItemType Directory -Force -Path $nativeTarget | Out-Null
+          Copy-Item "native/build/bin/AshenVoiceOverlay.dll" (Join-Path $nativeTarget "AshenVoiceOverlay.dll") -Force
+          Copy-Item "native/build/bin/AshenVoiceInjector.exe" (Join-Path $nativeTarget "AshenVoiceInjector.exe") -Force
 
       - name: Restore application
-        run: dotnet restore src/AshenVoice/AshenVoice.csproj
+        shell: powershell
+        run: dotnet restore "$env:ASHEN_PROJECT"
 
       - name: Build application
-        run: dotnet build src/AshenVoice/AshenVoice.csproj -c Release --no-restore
+        shell: powershell
+        run: dotnet build "$env:ASHEN_PROJECT" -c Release --no-restore
 
       - name: Publish self-contained application
-        run: >
-          dotnet publish src/AshenVoice/AshenVoice.csproj
-          -c Release
-          -r win-x64
-          --self-contained true
-          -p:PublishSingleFile=true
-          -p:IncludeNativeLibrariesForSelfExtract=true
-          -o publish
+        shell: powershell
+        run: |
+          dotnet publish "$env:ASHEN_PROJECT" `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -o publish
 
       - name: Package native overlay files
         shell: powershell
@@ -118,7 +141,8 @@ jobs:
         shell: powershell
         run: |
           $hash = (Get-FileHash "release\AshenVoice-Setup-1.4.2.exe" -Algorithm SHA256).Hash.ToLower()
-          "$hash AshenVoice-Setup-1.4.2.exe" | Set-Content "release\AshenVoice-Setup-1.4.2.exe.sha256"
+          "$hash AshenVoice-Setup-1.4.2.exe" |
+            Set-Content "release\AshenVoice-Setup-1.4.2.exe.sha256"
 
       - name: Upload Phase 4.2 installer
         uses: actions/upload-artifact@v4

@@ -1,7 +1,5 @@
-1. Close Ashen Voice and OctoWoW.
-2. Copy the .github and src folders into the root of the Ashen-Voice repository.
-3. Choose Replace files in the destination.
-4. Commit: Restore Discord build configuration
-5. Push origin and run Build Ashen Voice Phase 4.2 again.
-
-This patch restores DiscordBuildConfig.cs and makes the workflow recreate it automatically if it is missing later.
+1. Extract this ZIP.
+2. Copy .github\workflows\build-phase4.yml into the same folder in your Ashen-Voice repository.
+3. Replace the existing file. Do not open and paste its contents.
+4. Commit: Fix project detection in Phase 4.2 build
+5. Push origin. A new build should start automatically.

@@ -42,6 +42,7 @@ public partial class MainWindow : Window
     private int? _detectedWowProcessId;
     private int? _overlayProcessId;
     private bool _loadingSettings;
+    private bool _previewActive;
 
     public MainWindow()
     {
@@ -501,6 +502,8 @@ public partial class MainWindow : Window
         {
             _overlayActive = false;
             _overlayProcessId = null;
+            _previewActive = false;
+            ClearSpeakerState();
             AddLog("The WoW client closed. Overlay status was reset.");
         }
 
@@ -673,7 +676,7 @@ public partial class MainWindow : Window
         rpc.VoiceChannelChanged += channel => SafeDispatch(() => HandleVoiceChannelChanged(channel));
         rpc.VoiceMemberUpserted += member => SafeDispatch(() =>
         {
-            if (member.IsBot)
+            if (ShouldIgnoreVoiceMember(member))
             {
                 _voiceMembers.Remove(member.UserId);
                 _speakerGenerations.Remove(member.UserId);
@@ -695,7 +698,7 @@ public partial class MainWindow : Window
             _voiceMembers.Clear();
             _activeSpeakers.Clear();
             _speakerGenerations.Clear();
-            ClearSpeakerState();
+            WriteSpeakerState();
             ResetDiscordUi(error: true);
             UpdateControls();
         });
@@ -707,6 +710,24 @@ public partial class MainWindow : Window
         {
             Dispatcher.BeginInvoke(action);
         }
+    }
+
+    private static bool ShouldIgnoreVoiceMember(DiscordVoiceMember member)
+    {
+        if (member.IsBot)
+        {
+            return true;
+        }
+
+        string displayName = member.DisplayName.Trim();
+        if (string.IsNullOrWhiteSpace(displayName) ||
+            displayName.Equals("Discord user", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        string normalizedName = string.Concat(displayName.Where(char.IsLetterOrDigit));
+        return normalizedName.Equals("LunaBot", StringComparison.OrdinalIgnoreCase);
     }
 
     private void HandleVoiceChannelChanged(DiscordVoiceChannel? channel)
@@ -725,7 +746,7 @@ public partial class MainWindow : Window
 
         foreach (DiscordVoiceMember member in channel.Members)
         {
-            if (!member.IsBot)
+            if (!ShouldIgnoreVoiceMember(member))
             {
                 _voiceMembers[member.UserId] = member;
             }
@@ -742,7 +763,7 @@ public partial class MainWindow : Window
 
     private void HandleSpeakingChanged(string userId, bool speaking)
     {
-        if (!_voiceMembers.TryGetValue(userId, out DiscordVoiceMember? member) || member.IsBot)
+        if (!_voiceMembers.TryGetValue(userId, out DiscordVoiceMember? member) || ShouldIgnoreVoiceMember(member))
         {
             _speakerGenerations.Remove(userId);
             RemoveActiveSpeaker(userId);
@@ -763,7 +784,7 @@ public partial class MainWindow : Window
 
     private async Task AddOrUpdateActiveSpeakerAsync(DiscordVoiceMember member, int generation)
     {
-        if (member.IsBot)
+        if (ShouldIgnoreVoiceMember(member))
         {
             return;
         }
@@ -836,10 +857,12 @@ public partial class MainWindow : Window
     {
         try
         {
-            IEnumerable<string> lines = _activeSpeakers.Values
-                .OrderBy(speaker => speaker.StartedAt)
-                .Take(_settings.MaximumSpeakers)
-                .Select(speaker => $"{CleanSpeakerField(speaker.DisplayName)}\t{CleanSpeakerField(speaker.AvatarPath)}");
+            IEnumerable<string> lines = _previewActive
+                ? new[] { "Preview Speaker\t" }
+                : _activeSpeakers.Values
+                    .OrderBy(speaker => speaker.StartedAt)
+                    .Take(_settings.MaximumSpeakers)
+                    .Select(speaker => $"{CleanSpeakerField(speaker.DisplayName)}\t{CleanSpeakerField(speaker.AvatarPath)}");
 
             lock (_speakerStateWriteLock)
             {
@@ -889,7 +912,7 @@ public partial class MainWindow : Window
         _voiceMembers.Clear();
         _activeSpeakers.Clear();
         _speakerGenerations.Clear();
-        ClearSpeakerState();
+        WriteSpeakerState();
         ResetDiscordUi();
         if (writeLog)
         {
@@ -1099,6 +1122,9 @@ public partial class MainWindow : Window
 
     private async Task StopOverlayAsync()
     {
+        _previewActive = false;
+        ClearSpeakerState();
+
         int? processId = _overlayProcessId ?? _detectedWowProcessId;
         if (processId is null)
         {
@@ -1130,40 +1156,22 @@ public partial class MainWindow : Window
         UpdateControls();
     }
 
-    private async void PreviewOverlayButton_Click(object sender, RoutedEventArgs e)
+    private void PreviewOverlayButton_Click(object sender, RoutedEventArgs e)
     {
         if (!_overlayActive)
         {
             System.Windows.MessageBox.Show(
-                "Start the overlay first, then click Preview Overlay.",
+                "Start the overlay first.",
                 "Ashen Voice",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
             return;
         }
 
-        if (_discordConnected || _discordConnecting)
-        {
-            System.Windows.MessageBox.Show(
-                "Disconnect Discord before previewing the overlay.",
-                "Ashen Voice",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
-            return;
-        }
-
-        lock (_speakerStateWriteLock)
-        {
-            WriteTextFileAtomically(
-                _speakerStatePath,
-                $"Methl\t{Environment.NewLine}Danari\t{Environment.NewLine}Poetry\t");
-        }
-        AddLog("Overlay preview started.");
-        PreviewOverlayButton.IsEnabled = false;
-        await Task.Delay(TimeSpan.FromSeconds(8));
-        ClearSpeakerState();
-        PreviewOverlayButton.IsEnabled = true;
-        AddLog("Overlay preview finished.");
+        _previewActive = !_previewActive;
+        WriteSpeakerState();
+        AddLog(_previewActive ? "Overlay preview enabled." : "Overlay preview stopped.");
+        UpdateControls();
     }
 
     private static async Task<bool> WaitForNamedEventAsync(string eventName, TimeSpan timeout)
@@ -1305,7 +1313,8 @@ public partial class MainWindow : Window
         StopOverlayButton.IsEnabled = _overlayActive && !_overlayStarting;
         ConnectDiscordButton.IsEnabled = !_discordConnected && !_discordConnecting;
         DisconnectDiscordButton.IsEnabled = _discordConnected || _discordConnecting || _discordRpc is not null;
-        PreviewOverlayButton.IsEnabled = _overlayActive && !_discordConnected && !_discordConnecting;
+        PreviewOverlayButton.IsEnabled = _overlayActive && !_overlayStarting;
+        PreviewOverlayButton.Content = _previewActive ? "Stop Preview" : "Preview Overlay";
     }
 
     private void AddLog(string message)
@@ -1339,6 +1348,7 @@ public partial class MainWindow : Window
 
         SignalOverlayStopWithoutWaiting();
         StopDiscordWithoutWaiting();
+        _previewActive = false;
         ClearSpeakerState();
         _httpClient.Dispose();
         _trayIcon?.Dispose();
@@ -1357,6 +1367,7 @@ public partial class MainWindow : Window
         _allowClose = true;
         SignalOverlayStopWithoutWaiting();
         StopDiscordWithoutWaiting();
+        _previewActive = false;
         ClearSpeakerState();
         _httpClient.Dispose();
         _trayIcon?.Dispose();

@@ -30,6 +30,7 @@ public partial class MainWindow : Window
 
     private AppSettings _settings = new();
     private Forms.NotifyIcon? _trayIcon;
+    private System.Drawing.Icon? _applicationIcon;
     private DiscordRpcClient? _discordRpc;
     private CancellationTokenSource? _discordConnectCancellation;
     private bool _serviceRunning = true;
@@ -91,10 +92,16 @@ public partial class MainWindow : Window
 
     private void ConfigureTrayIcon()
     {
+        string? processPath = Environment.ProcessPath;
+        if (!string.IsNullOrWhiteSpace(processPath))
+        {
+            _applicationIcon = System.Drawing.Icon.ExtractAssociatedIcon(processPath);
+        }
+
         _trayIcon = new Forms.NotifyIcon
         {
             Text = "Ashen Voice",
-            Icon = System.Drawing.SystemIcons.Application,
+            Icon = _applicationIcon ?? System.Drawing.SystemIcons.Application,
             Visible = true
         };
 
@@ -1352,6 +1359,8 @@ public partial class MainWindow : Window
         ClearSpeakerState();
         _httpClient.Dispose();
         _trayIcon?.Dispose();
+        _applicationIcon?.Dispose();
+        _applicationIcon = null;
         base.OnClosing(e);
     }
 
@@ -1371,6 +1380,8 @@ public partial class MainWindow : Window
         ClearSpeakerState();
         _httpClient.Dispose();
         _trayIcon?.Dispose();
+        _applicationIcon?.Dispose();
+        _applicationIcon = null;
         System.Windows.Application.Current.Shutdown();
     }
 

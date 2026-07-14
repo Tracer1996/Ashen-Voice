@@ -1,5 +1,5 @@
 #define MyAppName "Ashen Voice"
-#define MyAppVersion "1.4.4"
+#define MyAppVersion "1.4.5"
 #define MyAppPublisher "Ashen Voice"
 #define MyAppExeName "AshenVoice.exe"
 
@@ -16,6 +16,7 @@ OutputBaseFilename=AshenVoice-Setup-{#MyAppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=..\src\AshenVoice\Assets\AshenVoice.ico
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin

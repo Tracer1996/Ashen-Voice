@@ -1,4 +1,4 @@
-name: Build Ashen Voice 1.4.4
+name: Build Ashen Voice 1.4.5
 
 on:
   workflow_dispatch:
@@ -127,22 +127,22 @@ jobs:
           New-Item -ItemType Directory -Force -Path release | Out-Null
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer\AshenVoice.iss"
 
-          if (!(Test-Path "release\AshenVoice-Setup-1.4.4.exe")) {
+          if (!(Test-Path "release\AshenVoice-Setup-1.4.5.exe")) {
             throw "Ashen Voice installer was not created."
           }
 
       - name: Create checksum
         shell: powershell
         run: |
-          $hash = (Get-FileHash "release\AshenVoice-Setup-1.4.4.exe" -Algorithm SHA256).Hash.ToLower()
-          "$hash AshenVoice-Setup-1.4.4.exe" |
-            Set-Content "release\AshenVoice-Setup-1.4.4.exe.sha256"
+          $hash = (Get-FileHash "release\AshenVoice-Setup-1.4.5.exe" -Algorithm SHA256).Hash.ToLower()
+          "$hash AshenVoice-Setup-1.4.5.exe" |
+            Set-Content "release\AshenVoice-Setup-1.4.5.exe.sha256"
 
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: Ashen-Voice-1.4.4-Installer
+          name: Ashen-Voice-1.4.5-Installer
           path: |
-            release/AshenVoice-Setup-1.4.4.exe
-            release/AshenVoice-Setup-1.4.4.exe.sha256
+            release/AshenVoice-Setup-1.4.5.exe
+            release/AshenVoice-Setup-1.4.5.exe.sha256
           if-no-files-found: error

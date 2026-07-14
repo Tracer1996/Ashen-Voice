@@ -8,9 +8,15 @@
     <Nullable>enable</Nullable>
     <AssemblyName>AshenVoice</AssemblyName>
     <RootNamespace>AshenVoice</RootNamespace>
-    <Version>1.4.4</Version>
+    <Version>1.4.5</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\AshenVoice.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\AshenVoice.ico" />
+    <Resource Include="Assets\AshenVoice.png" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />

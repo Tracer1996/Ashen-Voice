@@ -1,8 +1,9 @@
-# Ashen Voice 1.4.4
+# Ashen Voice 1.4.5
 
-## Fixed
+## Changes
 
-- Fixed the Phase 4.3 build error in `DiscordRpcClient.cs`:
-  `CS0165: Use of unassigned local variable 'botElement'`.
-- Discord bot detection now initializes the bot flag safely before it is used.
-- Keeps the existing LunaBot/music-bot filtering, persistent preview, expanded offsets, file-lock protection, administrator launch, Direct Discord connection, and fullscreen DirectX 9 overlay.
+- Added the official Ashen Voice forged-flame application icon.
+- Embedded the icon into `AshenVoice.exe`.
+- Added the icon to the main window, taskbar, system tray, desktop shortcut, Start menu shortcut, installer, and uninstall entry.
+- Included multi-resolution icon sizes from 16x16 through 256x256 for clean Windows scaling.
+- Kept all working 1.4.4 overlay, Discord, preview, settings, and bot-filtering behavior.
